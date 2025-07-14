@@ -6,46 +6,43 @@ document.addEventListener('DOMContentLoaded', () => {
     let kelvinLookupTable = [];
     const masterRange = { start: { k: 2000, hex: '#f57e0f' }, end: { k: 8000, hex: '#8cb1ff' } };
 
-    // --- 2. STATIC SITE API HANDLER ---
+    // --- 2. IN-MEMORY DATABASE & MOCK API ---
+    const initialDb = {
+        soundsets: {
+            "海洋": { name: "海洋", main: "sea.wav", aux: "sea.wav" },
+            "森林": { name: "森林", main: "sea.wav", aux: null }
+        },
+        controlsets: {
+            "默认配置": { "breathsPerMin": "6", "masterKelvinStart": "2000", "masterHexStart": "#f57e0f", "masterKelvinEnd": "8000", "masterHexEnd": "#8cb1ff", "kelvinSliderDefault": "5000", "kelvinSliderMin": "3000", "kelvinSliderMax": "7000", "defaultColor": "#c19887", "warmColor": "#e48737", "coolColor": "#9ea9d7", "soundscapeSelect": "海洋", "panningEnable": false, "panningPeriod": "10", "mainVolDefault": "30", "mainVolMin": "0", "mainVolMax": "80", "auxEnable": false, "auxVolume": "50", "lightDelay": "5", "lightDuration": "10", "soundDelay": "10", "soundDuration": "10" }
+        },
+        defaultControlset: "默认配置",
+        audioFiles: { mainsound: ["sea.wav"], plussound: ["sea.wav"] }
+    };
+    let liveDb = JSON.parse(JSON.stringify(initialDb));
+
     async function apiCall(url, method = 'GET', body = null) {
-        if (method !== 'GET') {
-            alert("在线演示版本不支持保存、修改或删除功能。\n所有更改将在刷新页面后重置。");
-            return Promise.resolve({ message: "Action is disabled in demo mode." });
+        console.log(`%c[Mock API Call] %c${method} %c${url}`, "color: #7f8c8d", "color: #2980b9; font-weight: bold", "color: inherit", body || "");
+        const showTempSaveWarning = () => { alert("您保存的配置是临时的，永久保存请联系管理员。"); };
+
+        if (method === 'GET') {
+            if (url === '/api/get-audio-files') return Promise.resolve(liveDb.audioFiles);
+            if (url === '/api/soundsets') return Promise.resolve(Object.keys(liveDb.soundsets));
+            if (url.startsWith('/api/soundsets/')) { const name = url.split('/').pop(); return liveDb.soundsets[name] ? Promise.resolve(liveDb.soundsets[name]) : Promise.reject(new Error("Soundset not found")); }
+            if (url === '/api/controlsets') return Promise.resolve(Object.keys(liveDb.controlsets));
+            if (url.startsWith('/api/controlsets/')) { const name = url.split('/').pop(); return liveDb.controlsets[name] ? Promise.resolve(liveDb.controlsets[name]) : Promise.reject(new Error("Controlset not found")); }
+            if (url === '/api/controlsets/default') return Promise.resolve({ default: liveDb.defaultControlset });
         }
-
-        const basePath = './static';
-        let staticUrl = '';
-
-        if (url === '/api/get-audio-files') {
-            // Cannot list directories, so this is hardcoded.
-            return Promise.resolve({ mainsound: ["sea.wav"], plussound: ["sea.wav"] });
+        if (method === 'POST') {
+            if (url === '/api/soundsets') { liveDb.soundsets[body.name] = body; showTempSaveWarning(); return Promise.resolve({ message: "OK" }); }
+            if (url === '/api/controlsets') { liveDb.controlsets[body.name] = body.settings; showTempSaveWarning(); return Promise.resolve({ message: "OK" }); }
+            if (url === '/api/controlsets/default') { liveDb.defaultControlset = body.name; showTempSaveWarning(); return Promise.resolve({ message: "OK" }); }
         }
-        if (url === '/api/soundsets') {
-            staticUrl = `${basePath}/soundsets.json`;
-        } else if (url.startsWith('/api/soundsets/')) {
-            const name = url.split('/').pop();
-            staticUrl = `${basePath}/soundset/${name}.json`;
-        } else if (url === '/api/controlsets') {
-            staticUrl = `${basePath}/controlsets.json`;
-        } else if (url.startsWith('/api/controlsets/')) {
-            const name = url.split('/').pop().replace('.json', '');
-            staticUrl = `${basePath}/controlset/${name}.json`;
-        } else if (url === '/api/controlsets/default') {
-            return Promise.resolve({ default: '默认配置.json' });
+        if (method === 'PUT') { if (url.startsWith('/api/soundsets/')) { const name = url.split('/').pop(); liveDb.soundsets[name] = body; showTempSaveWarning(); return Promise.resolve({ message: "OK" }); } }
+        if (method === 'DELETE') {
+             if (url === '/api/soundsets') { if(liveDb.soundsets[body.name]) delete liveDb.soundsets[body.name]; showTempSaveWarning(); return Promise.resolve({ message: "OK" }); }
+            if (url === '/api/controlsets') { if(liveDb.controlsets[body.name]) delete liveDb.controlsets[body.name]; showTempSaveWarning(); return Promise.resolve({ message: "OK" }); }
         }
-
-        if (!staticUrl) return Promise.reject(new Error(`API route ${url} not supported in static mode.`));
-
-        try {
-            const response = await fetch(staticUrl);
-            if (!response.ok) throw new Error(`Failed to fetch static file: ${staticUrl} (${response.statusText})`);
-            const data = await response.json();
-            // The list files contain filenames, we need to strip the extension for display
-            if (url === '/api/soundsets' || url === '/api/controlsets') {
-                return data.map(name => name.replace('.json', ''));
-            }
-            return data;
-        } catch (error) { console.error('Static API Call Failed:', error); throw error; }
+        return Promise.reject(new Error(`API route ${url} not supported.`));
     }
 
     // --- 3. HELPER AND CORE FUNCTIONS ---
@@ -63,8 +60,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateStatusDisplay() { if (!state.isRunning) { dom.statusDashboard.classList.add('hidden'); return; } dom.statusDashboard.classList.remove('hidden'); dom.runStatus.textContent = `${state.isPaused ? '已暂停' : '运行中'}：${formatTime(state.totalRunTime)}`; const now = state.totalRunTime; const ld = parseInt(dom.lightDelay.value), durL = parseInt(dom.lightDuration.value); const sd = parseInt(dom.soundDelay.value), durS = parseInt(dom.soundDuration.value); switch (state.currentPhase) { case 'fadeIn': dom.lightStatus.textContent = now < ld ? `光：即将渐入 (剩 ${ld - now}s)` : now < ld + durL ? `光：正在渐入 (剩 ${ld + durL - now}s)` : '光：等待同步'; dom.soundStatus.textContent = now < sd ? `声：即将渐入 (剩 ${sd - now}s)` : now < sd + durS ? `声：正在渐入 (剩 ${sd + durS - now}s)` : '声：等待同步'; break; case 'syncing': dom.lightStatus.textContent = '光：正在同步...'; dom.soundStatus.textContent = '声：正在同步...'; break; case 'breathing': dom.lightStatus.textContent = '光：正在与呼吸同步'; dom.soundStatus.textContent = '声：正在与呼吸同步'; break; } }
     let breathProgress = 0, lastFrameTime = 0; const SYNC_DURATION = 2000;
     function mainLoop(timestamp) { if (!state.isRunning || state.isPaused) return; state.animationFrameId = requestAnimationFrame(mainLoop); const now = performance.now(); const elapsedTime = now - state.startTime; if (state.currentPhase === 'fadeIn') { const lightDelay = parseInt(dom.lightDelay.value) * 1000, lightDuration = parseInt(dom.lightDuration.value) * 1000 || 1; if (elapsedTime > lightDelay) dom.lightBg.style.backgroundColor = interpolateColor('#000000', dom.defaultColor.value, Math.min((elapsedTime - lightDelay) / lightDuration, 1)); const soundDelay = parseInt(dom.soundDelay.value) * 1000, soundDuration = parseInt(dom.soundDuration.value) * 1000 || 1; if (elapsedTime > soundDelay && audioCtx) { const soundProgress = Math.min((elapsedTime - soundDelay) / soundDuration, 1); mainGainNode.gain.value = (parseInt(dom.mainVolDefault.value) / 100) * soundProgress; if(dom.auxEnable.checked) auxGainNode.gain.value = (parseInt(dom.auxVolume.value) / 100) * soundProgress; } if (elapsedTime >= Math.max(lightDelay + lightDuration, soundDelay + soundDuration)) { state.currentPhase = 'syncing'; state.syncStartTime = now; dom.guideText.textContent = '准备...'; dom.guideText.style.opacity = 1; } } else if (state.currentPhase === 'syncing') { const syncProgress = Math.min((now - state.syncStartTime) / SYNC_DURATION, 1); dom.lightBg.style.backgroundColor = interpolateColor(dom.defaultColor.value, dom.warmColor.value, syncProgress); const volStart = parseInt(dom.mainVolDefault.value) / 100, volEnd = parseInt(dom.mainVolMin.value) / 100; if(audioCtx) mainGainNode.gain.value = volStart + (volEnd - volStart) * syncProgress; if (syncProgress >= 1) { state.currentPhase = 'breathing'; state.breathPhase = 'inhale'; breathProgress = 0; dom.guideText.textContent = '吸气'; } } else if (state.currentPhase === 'breathing') { const cycleDuration = (60 / parseInt(dom.breathsPerMin.value)) * 1000, phaseDuration = cycleDuration / 2; breathProgress += (timestamp - (lastFrameTime || timestamp)) / phaseDuration; if (breathProgress >= 1) { breathProgress = 0; state.breathPhase = state.breathPhase === 'inhale' ? 'exhale' : 'inhale'; dom.guideText.textContent = state.breathPhase === 'inhale' ? '吸气' : '呼气'; } const currentProgress = state.breathPhase === 'inhale' ? breathProgress : 1 - breathProgress; dom.lightBg.style.backgroundColor = interpolateColor(dom.warmColor.value, dom.coolColor.value, currentProgress); if (audioCtx) { const volMin = parseInt(dom.mainVolMin.value) / 100, volMax = parseInt(dom.mainVolMax.value) / 100; mainGainNode.gain.value = volMin + (volMax - volMin) * currentProgress; if (dom.panningEnable.checked) pannerNode.pan.value = Math.sin(Date.now() * 2 * Math.PI / (parseInt(dom.panningPeriod.value) * 1000)); } } lastFrameTime = timestamp; }
-    async function applySettings(settings) { masterRange.start.k = parseInt(settings.masterKelvinStart) || 2000; masterRange.start.hex = settings.masterHexStart || '#f57e0f'; masterRange.end.k = parseInt(settings.masterKelvinEnd) || 8000; masterRange.end.hex = settings.masterHexEnd || '#8cb1ff'; dom.masterKelvinStart.value = masterRange.start.k; dom.masterHexStart.value = masterRange.start.hex; dom.masterKelvinStart.style.backgroundColor = masterRange.start.hex; dom.masterKelvinEnd.value = masterRange.end.k; dom.masterHexEnd.value = masterRange.end.hex; dom.masterKelvinEnd.style.backgroundColor = masterRange.end.hex; updateMasterGradient(); for (const key in settings) { const el = dom[key]; if (el && !key.startsWith('master')) { if (el.type === 'checkbox') el.checked = settings[key]; else el.value = settings[key]; } } dom.kelvinSliderDefault.value = settings.kelvinSliderDefault || settings.kelvinDefault || 3000; dom.kelvinSliderMin.value = settings.kelvinSliderMin || settings.kelvinMin || 2000; dom.kelvinSliderMax.value = settings.kelvinSliderMax || settings.kelvinMax || 4000; [dom.kelvinSliderDefault, dom.kelvinSliderMin, dom.kelvinSliderMax].forEach(slider => { slider.dispatchEvent(new Event('input', { bubbles: true })); }); }
-    async function renderConfigList() { try { const configs = await apiCall('/api/controlsets'); const { default: defaultName } = await apiCall('/api/controlsets/default'); dom.configList.innerHTML = ''; dom.currentDefaultConfig.textContent = defaultName.replace('.json', '') || '无'; configs.forEach(name => { const li = document.createElement('li'); li.className = (name === defaultName.replace('.json', '')) ? 'is-default' : ''; li.innerHTML = `<span class="preset-name">${name}</span><div class="preset-actions"><button class="apply-btn" title="应用">✔</button><button class="default-btn" title="设为默认">⭐</button><button class="delete-btn" title="删除">✕</button></div>`; li.querySelector('.apply-btn').addEventListener('click', async () => applySettings(await apiCall(`/api/controlsets/${name}`))); li.querySelector('.default-btn').addEventListener('click', async () => { await apiCall('/api/controlsets/default', 'POST', { name }); renderConfigList(); }); const deleteBtn = li.querySelector('.delete-btn'); if (name === '默认配置') deleteBtn.disabled = true; deleteBtn.addEventListener('click', async () => { if (confirm(`确定删除配置 "${name}"?`)) { await apiCall('/api/controlsets', 'DELETE', { name }); renderConfigList(); } }); dom.configList.appendChild(li); }); } catch (e) { console.error("Failed to render config list:", e); } }
+    async function applySettings(settings) { masterRange.start.k = parseInt(settings.masterKelvinStart) || 2000; masterRange.start.hex = settings.masterHexStart || '#f57e0f'; masterRange.end.k = parseInt(settings.masterKelvinEnd) || 8000; masterRange.end.hex = settings.masterHexEnd || '#8cb1ff'; dom.masterKelvinStart.value = masterRange.start.k; dom.masterHexStart.value = masterRange.start.hex; dom.masterKelvinStart.style.backgroundColor = masterRange.start.hex; dom.masterKelvinEnd.value = masterRange.end.k; dom.masterHexEnd.value = masterRange.end.hex; dom.masterKelvinEnd.style.backgroundColor = masterRange.end.hex; updateMasterGradient(); for (const key in settings) { const el = dom[key]; if (el && !key.startsWith('master')) { if (el.type === 'checkbox') el.checked = settings[key]; else el.value = settings[key]; } } dom.kelvinSliderDefault.value = settings.kelvinSliderDefault || settings.kelvinDefault || 3000; dom.kelvinSliderMin.value = settings.kelvinSliderMin || settings.kelvinMin || 2000; dom.kelvinSliderMax.value = settings.kelvinSliderMax || settings.kelvinMax || 4000; [dom.kelvinSliderDefault, dom.kelvinSliderMin, dom.kelvinSliderMax].forEach(slider => { slider.dispatchEvent(new Event('input', { bubbles: true })); }); await updateCurrentSoundscape(dom.soundscapeSelect.value); }
+    async function renderConfigList() { try { const configs = await apiCall('/api/controlsets'); const { default: defaultName } = await apiCall('/api/controlsets/default'); dom.configList.innerHTML = ''; dom.currentDefaultConfig.textContent = defaultName || '无'; configs.forEach(name => { const li = document.createElement('li'); li.className = (name === defaultName) ? 'is-default' : ''; li.innerHTML = `<span class="preset-name">${name}</span><div class="preset-actions"><button class="apply-btn" title="应用">✔</button><button class="default-btn" title="设为默认">⭐</button><button class="delete-btn" title="删除">✕</button></div>`; li.querySelector('.apply-btn').addEventListener('click', async () => applySettings(await apiCall(`/api/controlsets/${name}`))); li.querySelector('.default-btn').addEventListener('click', async () => { await apiCall('/api/controlsets/default', 'POST', { name }); renderConfigList(); }); const deleteBtn = li.querySelector('.delete-btn'); if (name === '默认配置') deleteBtn.disabled = true; deleteBtn.addEventListener('click', async () => { if (confirm(`确定删除配置 "${name}"?`)) { await apiCall('/api/controlsets', 'DELETE', { name }); renderConfigList(); } }); dom.configList.appendChild(li); }); } catch (e) { console.error("Failed to render config list:", e); } }
     async function renderSoundscapeList() { try { const soundscapes = await apiCall('/api/soundsets'); const currentVal = dom.soundscapeSelect.value; dom.soundscapeSelect.innerHTML = ''; soundscapes.forEach(name => dom.soundscapeSelect.innerHTML += `<option value="${name}">${name}</option>`); if (currentVal && soundscapes.includes(currentVal)) dom.soundscapeSelect.value = currentVal; else if (soundscapes.length > 0) dom.soundscapeSelect.value = soundscapes[0]; dom.soundscapeManagementList.innerHTML = ''; soundscapes.forEach(name => { const li = document.createElement('li'); li.innerHTML = `<span class="preset-name">${name}</span><div class="preset-actions"><button class="delete-btn" title="删除">✕</button></div>`; const deleteBtn = li.querySelector('.delete-btn'); if (name === '海洋' || name === dom.soundscapeSelect.value) { deleteBtn.disabled = true; deleteBtn.title = (name === '海洋') ? '不可删除默认声景' : '无法删除正在使用的声景'; } deleteBtn.addEventListener('click', async () => { if (confirm(`确定删除声景 "${name}"?`)) { await apiCall('/api/soundsets', 'DELETE', { name }); await renderSoundscapeList(); await renderConfigList(); } }); dom.soundscapeManagementList.appendChild(li); }); } catch(e) { console.error("Failed to render soundscape list:", e); } }
     async function updateCurrentSoundscape(name) { if (!name) { state.mainAudioFile = null; state.auxAudioFile = null; dom.mainTrackName.textContent = '无'; dom.auxTrackName.textContent = '无'; return; } try { const data = await apiCall(`/api/soundsets/${name}`); state.mainAudioFile = data.main || null; state.auxAudioFile = data.aux || null; dom.mainTrackName.textContent = state.mainAudioFile || '无'; dom.auxTrackName.textContent = state.auxAudioFile || '无'; await renderSoundscapeList(); } catch (error) { await renderSoundscapeList(); } }
     function resetAll() { state.isRunning = false; state.isPaused = false; state.currentPhase = 'idle'; if (state.animationFrameId) cancelAnimationFrame(state.animationFrameId); stopRunTimer(); state.totalRunTime = 0; dom.mainAudio.pause(); dom.auxAudio.pause(); if (audioCtx) { mainGainNode.gain.setValueAtTime(0, audioCtx.currentTime); auxGainNode.gain.setValueAtTime(0, audioCtx.currentTime); } dom.lightBg.style.transition = 'background-color 0.5s'; dom.lightBg.style.backgroundColor = '#000'; dom.guideText.style.opacity = 0; dom.statusDashboard.classList.add('hidden'); dom.startStopBtn.textContent = '开始'; dom.startStopBtn.className = ''; }
@@ -96,11 +93,45 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.auxEnable.addEventListener('change', e => { dom.auxVolume.disabled = !e.target.checked; });
         dom.panningEnable.addEventListener('change', e => { dom.panningPeriod.disabled = !e.target.checked; });
         dom.soundscapeSelect.addEventListener('change', (e) => updateCurrentSoundscape(e.target.value));
-        dom.saveConfigBtn.addEventListener('click', async () => await apiCall('/api/controlsets', 'POST', {}));
-        const openSoundscapeModal = () => apiCall('/api/soundsets', 'POST', {});
-        dom.addSoundscapeBtn.addEventListener('click', openSoundscapeModal);
-        dom.editMainTrackBtn.addEventListener('click', openSoundscapeModal);
-        dom.editAuxTrackBtn.addEventListener('click', openSoundscapeModal);
+        dom.saveConfigBtn.addEventListener('click', () => dom.saveConfigModal.classList.remove('hidden'));
+        [dom.saveConfigModal, dom.soundscapeModal].forEach(modal => {
+             modal.addEventListener('click', e => { if (e.target.classList.contains('modal-overlay') || e.target.classList.contains('cancel-btn')) modal.classList.add('hidden'); });
+             modal.querySelector('.cancel-btn').addEventListener('click', () => modal.classList.add('hidden'));
+        });
+        dom.confirmSaveConfigBtn.addEventListener('click', async () => {
+            const name = dom.configNameInput.value.trim(); if (!name) return alert('请输入配置名称！');
+            const settings = { ...Object.fromEntries([...document.querySelectorAll('.console input, .console select')].map(el => [el.id, el.type === 'checkbox' ? el.checked : el.value])), kelvinSliderDefault: dom.kelvinSliderDefault.value, kelvinSliderMin: dom.kelvinSliderMin.value, kelvinSliderMax: dom.kelvinSliderMax.value, };
+            await apiCall('/api/controlsets', 'POST', { name, settings });
+            dom.configNameInput.value = ''; dom.saveConfigModal.classList.add('hidden');
+            renderConfigList();
+        });
+        const openSoundscapeModal = (isEditing) => {
+            dom.soundscapeModal.dataset.isEditing = isEditing;
+            const currentName = dom.soundscapeSelect.value;
+            dom.soundscapeModalTitle.textContent = isEditing ? `修改声景: ${currentName}` : '创建新声景';
+            dom.soundscapeNameInput.value = isEditing ? currentName : '';
+            dom.soundscapeNameInput.disabled = isEditing;
+            dom.mainTrackSelect.value = state.mainAudioFile || '';
+            dom.auxTrackSelect.value = state.auxAudioFile || '';
+            dom.soundscapeModal.classList.remove('hidden');
+        };
+        dom.addSoundscapeBtn.addEventListener('click', () => openSoundscapeModal(false));
+        dom.editMainTrackBtn.addEventListener('click', () => openSoundscapeModal(true));
+        dom.editAuxTrackBtn.addEventListener('click', () => openSoundscapeModal(true));
+        dom.confirmSaveSoundscapeBtn.addEventListener('click', async () => {
+            const isEditing = dom.soundscapeModal.dataset.isEditing === 'true';
+            const name = dom.soundscapeNameInput.value.trim(); if (!name) return alert('请输入声景名称！');
+            const main = dom.mainTrackSelect.value; const aux = dom.auxTrackSelect.value; if (!main) return alert('请至少选择一个主轨音频！');
+            const payload = { name, main, aux };
+            try {
+                if (isEditing) { await apiCall(`/api/soundsets/${name}`, 'PUT', payload); }
+                else { await apiCall('/api/soundsets', 'POST', payload); }
+                dom.soundscapeModal.classList.add('hidden');
+                await renderSoundscapeList();
+                dom.soundscapeSelect.value = name;
+                dom.soundscapeSelect.dispatchEvent(new Event('change'));
+            } catch (error) { alert(`保存声景失败: ${error.message}`); }
+        });
     }
 
     // --- 4. INITIALIZATION ---
@@ -122,7 +153,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const { default: defaultName } = await apiCall('/api/controlsets/default');
             const settings = await apiCall(`/api/controlsets/${defaultName}`);
             await applySettings(settings);
-            await updateCurrentSoundscape(dom.soundscapeSelect.value);
         } catch (e) {
             console.error("Initialization failed:", e);
             alert("应用初始化失败。请确保所有配置文件都已正确放置在 `frontend/static` 目录中，并且清单文件 `controlsets.json` 和 `soundsets.json` 已更新。");
