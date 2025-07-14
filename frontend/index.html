@@ -21,7 +21,7 @@
                 </div>
 
                 <div class="control-group">
-                    <h3 class="group-title">光照控制</h3>
+                    <!--<h3 class="group-title">光照控制</h3>-->
                     <div class="master-range-container">
                         <div class="master-endpoint">
                             <input type="number" id="masterKelvinStart" class="kelvin-input small" value="1000">
@@ -39,12 +39,12 @@
                         <input type="number" id="kelvinDefault" class="kelvin-input value-display">
                     </div>
                     <div class="color-control-row">
-                        <label>最小值:</label>
+                        <label>最大值:</label>
                         <input type="range" id="kelvinSliderMin" class="kelvin-slider">
                         <input type="number" id="kelvinMin" class="kelvin-input value-display">
                     </div>
                     <div class="color-control-row">
-                        <label>最大值:</label>
+                        <label>最小值:</label>
                         <input type="range" id="kelvinSliderMax" class="kelvin-slider">
                         <input type="number" id="kelvinMax" class="kelvin-input value-display">
                     </div>
@@ -67,6 +67,7 @@
                     <div class="control-row"><input type="checkbox" id="auxEnable"><label for="auxEnable">启用</label><label>响度(dB):</label><input type="number" id="auxVolume" value="50" min="0" max="100" disabled></div>
                 </div>
                 <div class="control-group">
+                    <h3 class="group-title">声光渐入设置</h3>
                     <div class="control-row"><label>光:</label><label>延迟 <input type="number" id="lightDelay" value="5" min="0"> s</label><label>时长 <input type="number" id="lightDuration" value="10" min="0"> s</label></div>
                     <div class="control-row"><label>声:</label><label>延迟 <input type="number" id="soundDelay" value="10" min="0"> s</label><label>时长 <input type="number" id="soundDuration" value="10" min="0"> s</label></div>
                 </div>
