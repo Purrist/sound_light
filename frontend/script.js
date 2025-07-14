@@ -77,7 +77,55 @@ document.addEventListener('DOMContentLoaded', () => {
         end: { k: 8000, hex: '#8cb1ff' }
     };
 
-    // --- 2. HELPER FUNCTIONS ---
+    // --- 2. MOCK API AND DATA (for GitHub Pages) ---
+
+    const mockDb = {
+        soundsets: {
+            "海洋": { name: "海洋", main: "sea.wav", aux: "sea.wav" },
+        },
+        controlsets: {
+            "默认配置": {
+                "breathsPerMin": "6", "masterKelvinStart": "2000", "masterHexStart": "#f57e0f", "masterKelvinEnd": "8000",
+                "masterHexEnd": "#8cb1ff", "kelvinSliderDefault": "5000", "kelvinSliderMin": "3000", "kelvinSliderMax": "7000",
+                "defaultColor": "#c19887", "warmColor": "#e48737", "coolColor": "#9ea9d7", "soundscapeSelect": "海洋",
+                "panningEnable": false, "panningPeriod": "10", "mainVolDefault": "30", "mainVolMin": "0", "mainVolMax": "80",
+                "auxEnable": false, "auxVolume": "50", "lightDelay": "5", "lightDuration": "10", "soundDelay": "10", "soundDuration": "10"
+            }
+        },
+        defaultControlset: "默认配置",
+        audioFiles: {
+            mainsound: ["sea.wav"],
+            plussound: ["sea.wav"]
+        }
+    };
+
+    async function apiCall(url, method = 'GET', body = null) {
+        console.log(`%c[Mock API Call] %c${method} %c${url}`, "color: #7f8c8d", "color: #2980b9; font-weight: bold", "color: inherit", body || "");
+
+        if (method === 'GET') {
+            if (url === '/api/get-audio-files') return Promise.resolve(mockDb.audioFiles);
+            if (url === '/api/soundsets') return Promise.resolve(Object.keys(mockDb.soundsets));
+            if (url.startsWith('/api/soundsets/')) {
+                const name = url.split('/').pop();
+                return mockDb.soundsets[name] ? Promise.resolve(mockDb.soundsets[name]) : Promise.reject(new Error("Soundset not found"));
+            }
+            if (url === '/api/controlsets') return Promise.resolve(Object.keys(mockDb.controlsets));
+            if (url.startsWith('/api/controlsets/')) {
+                const name = url.split('/').pop();
+                return mockDb.controlsets[name] ? Promise.resolve(mockDb.controlsets[name]) : Promise.reject(new Error("Controlset not found"));
+            }
+            if (url === '/api/controlsets/default') return Promise.resolve({ default: mockDb.defaultControlset });
+        }
+
+        if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+            alert("在线演示版本不支持保存、修改或删除功能。\n所有更改将在刷新页面后重置。");
+            return Promise.resolve({ message: "Action successful (Demo Mode)" });
+        }
+
+        return Promise.reject(new Error(`Mock API endpoint for ${url} not found.`));
+    }
+
+    // --- 3. HELPER AND CORE FUNCTIONS ---
 
     function kelvinToHex(kelvin) {
         kelvin = Math.max(1000, Math.min(40000, kelvin)) / 100;
@@ -111,6 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const interpolateColor = (c1, c2, f) => {
+        if (f < 0) f = 0; if (f > 1) f = 1;
         const r1=parseInt(c1.slice(1,3),16), g1=parseInt(c1.slice(3,5),16), b1=parseInt(c1.slice(5,7),16);
         const r2=parseInt(c2.slice(1,3),16), g2=parseInt(c2.slice(3,5),16), b2=parseInt(c2.slice(5,7),16);
         const r=Math.round(r1+f*(r2-r1)), g=Math.round(g1+f*(g2-g1)), b=Math.round(b1+f*(b2-b1));
@@ -121,8 +170,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const gradient = `linear-gradient(90deg, ${masterRange.start.hex}, ${masterRange.end.hex})`;
         dom.masterGradientBar.style.background = gradient;
         [dom.kelvinSliderDefault, dom.kelvinSliderMin, dom.kelvinSliderMax].forEach(s => s.style.background = gradient);
-        const min = Math.min(masterRange.start.k, masterRange.end.k);
-        const max = Math.max(masterRange.start.k, masterRange.end.k);
+        const min = Math.min(parseInt(masterRange.start.k), parseInt(masterRange.end.k));
+        const max = Math.max(parseInt(masterRange.start.k), parseInt(masterRange.end.k));
         [dom.kelvinSliderDefault, dom.kelvinSliderMin, dom.kelvinSliderMax].forEach(slider => {
             slider.min = min;
             slider.max = max;
@@ -152,12 +201,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function setupValueBinding(slider, numberDisplay, hiddenColorInput) {
         slider.addEventListener('input', () => {
             const currentKelvin = parseInt(slider.value);
-            const minK = Math.min(masterRange.start.k, masterRange.end.k);
-            const maxK = Math.max(masterRange.start.k, masterRange.end.k);
+            const startK = parseInt(masterRange.start.k);
+            const endK = parseInt(masterRange.end.k);
+            const minK = Math.min(startK, endK);
+            const maxK = Math.max(startK, endK);
             const clampedKelvin = Math.max(minK, Math.min(maxK, currentKelvin));
-
-            const totalRange = masterRange.end.k - masterRange.start.k;
-            const progress = totalRange === 0 ? 0.5 : (clampedKelvin - masterRange.start.k) / totalRange;
+            const totalRange = endK - startK;
+            const progress = totalRange === 0 ? 0.5 : (clampedKelvin - startK) / totalRange;
             const newHex = interpolateColor(masterRange.start.hex, masterRange.end.hex, progress);
 
             numberDisplay.value = clampedKelvin;
@@ -165,7 +215,6 @@ document.addEventListener('DOMContentLoaded', () => {
             numberDisplay.style.backgroundColor = newHex;
             hiddenColorInput.value = newHex;
         });
-
         numberDisplay.addEventListener('change', () => {
             slider.value = numberDisplay.value;
             slider.dispatchEvent(new Event('input', { bubbles: true }));
@@ -180,26 +229,6 @@ document.addEventListener('DOMContentLoaded', () => {
         mainSource.connect(mainGainNode).connect(pannerNode).connect(audioCtx.destination);
         auxSource.connect(auxGainNode).connect(audioCtx.destination);
         mainGainNode.gain.setValueAtTime(0, audioCtx.currentTime); auxGainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-    }
-
-    async function apiCall(url, method = 'GET', body = null) {
-        try {
-            const options = { method, headers: { 'Content-Type': 'application/json' } };
-            if (body) options.body = JSON.stringify(body);
-            const response = await fetch(url, options);
-            if (!response.ok) {
-                let errorMsg = `HTTP error! status: ${response.status}`;
-                if (response.headers.get("content-type")?.includes("application/json")) {
-                    const errorData = await response.json();
-                    errorMsg = errorData.error || errorMsg;
-                }
-                throw new Error(errorMsg);
-            }
-            if (response.headers.get("content-type")?.includes("application/json")) {
-                 return await response.json();
-            }
-            return null;
-        } catch (error) { console.error('API Call Failed:', url, error); throw error; }
     }
 
     const formatTime = (s) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
@@ -273,21 +302,18 @@ document.addEventListener('DOMContentLoaded', () => {
         lastFrameTime = timestamp;
     }
 
-    function applySettings(settings) {
+    async function applySettings(settings) {
         masterRange.start.k = parseInt(settings.masterKelvinStart) || 2000;
         masterRange.start.hex = settings.masterHexStart || '#f57e0f';
         masterRange.end.k = parseInt(settings.masterKelvinEnd) || 8000;
         masterRange.end.hex = settings.masterHexEnd || '#8cb1ff';
-
         dom.masterKelvinStart.value = masterRange.start.k;
         dom.masterHexStart.value = masterRange.start.hex;
         dom.masterKelvinStart.style.backgroundColor = masterRange.start.hex;
         dom.masterKelvinEnd.value = masterRange.end.k;
         dom.masterHexEnd.value = masterRange.end.hex;
         dom.masterKelvinEnd.style.backgroundColor = masterRange.end.hex;
-
         updateMasterGradient();
-
         for (const key in settings) {
             const el = dom[key];
             if (el && !key.startsWith('master')) {
@@ -295,11 +321,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 else el.value = settings[key];
             }
         }
-
         dom.kelvinSliderDefault.value = settings.kelvinSliderDefault || settings.kelvinDefault || 3000;
         dom.kelvinSliderMin.value = settings.kelvinSliderMin || settings.kelvinMin || 2000;
         dom.kelvinSliderMax.value = settings.kelvinSliderMax || settings.kelvinMax || 4000;
-
         [dom.kelvinSliderDefault, dom.kelvinSliderMin, dom.kelvinSliderMax].forEach(slider => {
              slider.dispatchEvent(new Event('input', { bubbles: true }));
         });
@@ -377,8 +401,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.isRunning = true; state.isPaused = false; state.currentPhase = 'fadeIn';
                 state.startTime = performance.now(); lastFrameTime = 0;
                 dom.lightBg.style.transition = 'none';
-                if (state.mainAudioFile) { dom.mainAudio.src = `/static/mainsound/${state.mainAudioFile}`; dom.mainAudio.play().catch(e=>console.error("Main audio play failed:", e)); }
-                if (dom.auxEnable.checked && state.auxAudioFile) { dom.auxAudio.src = `/static/plussound/${state.auxAudioFile}`; dom.auxAudio.play().catch(e=>console.error("Aux audio play failed:", e)); }
+
+                // GH-PAGES FIX: Update audio paths
+                const basePath = '/sound_light';
+                if (state.mainAudioFile) { dom.mainAudio.src = `${basePath}/static/mainsound/${state.mainAudioFile}`; dom.mainAudio.play().catch(e=>console.error("Main audio play failed:", e)); }
+                if (dom.auxEnable.checked && state.auxAudioFile) { dom.auxAudio.src = `${basePath}/static/plussound/${state.auxAudioFile}`; dom.auxAudio.play().catch(e=>console.error("Aux audio play failed:", e)); }
+
                 startRunTimer(); state.animationFrameId = requestAnimationFrame(mainLoop);
                 dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
             } else if (state.isPaused) {
@@ -403,16 +431,7 @@ document.addEventListener('DOMContentLoaded', () => {
              modal.querySelector('.cancel-btn').addEventListener('click', () => modal.classList.add('hidden'));
         });
         dom.confirmSaveConfigBtn.addEventListener('click', async () => {
-            const name = dom.configNameInput.value.trim(); if (!name) return alert('请输入配置名称！');
-            const settings = {
-                ...Object.fromEntries([...document.querySelectorAll('.console input, .console select')].map(el => [el.id, el.type === 'checkbox' ? el.checked : el.value])),
-                kelvinSliderDefault: dom.kelvinSliderDefault.value,
-                kelvinSliderMin: dom.kelvinSliderMin.value,
-                kelvinSliderMax: dom.kelvinSliderMax.value,
-            };
-            await apiCall('/api/controlsets', 'POST', { name, settings });
-            dom.configNameInput.value = ''; dom.saveConfigModal.classList.add('hidden');
-            renderConfigList();
+            await apiCall('/api/controlsets', 'POST', {});
         });
 
         const openSoundscapeModal = (isEditing) => {
@@ -431,27 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.editAuxTrackBtn.addEventListener('click', () => openSoundscapeModal(true));
 
         dom.confirmSaveSoundscapeBtn.addEventListener('click', async () => {
-            const isEditing = dom.soundscapeModal.dataset.isEditing === 'true';
-            const name = dom.soundscapeNameInput.value.trim();
-            if (!name) return alert('请输入声景名称！');
-            const main = dom.mainTrackSelect.value;
-            const aux = dom.auxTrackSelect.value;
-            if (!main) return alert('请至少选择一个主轨音频！');
-
-            const payload = { name, main, aux };
-            try {
-                if (isEditing) {
-                    await apiCall(`/api/soundsets/${name}`, 'PUT', payload);
-                } else {
-                    await apiCall('/api/soundsets', 'POST', payload);
-                }
-                dom.soundscapeModal.classList.add('hidden');
-                await renderSoundscapeList();
-                dom.soundscapeSelect.value = name;
-                dom.soundscapeSelect.dispatchEvent(new Event('change'));
-            } catch (error) {
-                alert(`保存声景失败: ${error.message}`);
-            }
+            await apiCall('/api/soundsets', 'POST', {});
         });
     }
 
@@ -472,18 +471,18 @@ document.addEventListener('DOMContentLoaded', () => {
             populate(dom.mainTrackSelect, audioFiles.mainsound);
             populate(dom.auxTrackSelect, audioFiles.plussound, true);
 
-            await renderConfigList();
             await renderSoundscapeList();
+            await renderConfigList();
 
             const { default: defaultName } = await apiCall('/api/controlsets/default');
             const settings = await apiCall(`/api/controlsets/${defaultName}`);
-            applySettings(settings);
+            await applySettings(settings);
 
             await updateCurrentSoundscape(dom.soundscapeSelect.value);
 
         } catch (e) {
             console.error("Initialization failed:", e);
-            alert("应用初始化失败，请检查后端服务是否正常或刷新页面。");
+            alert("应用初始化失败。这可能是一个演示版本，部分功能（如保存）已被禁用。");
         }
     }
 
