@@ -5,11 +5,12 @@
   # This command will now run inside the 'api' directory.
   command = "pip install -r requirements.txt"
 
-  # Publish directory is relative to the project root.
-  publish = "public"
+  # Publish directory MUST now be relative to the 'base' directory.
+  # We use '../public' to go one level up from 'api' and then into 'public'.
+  publish = "../public"
 
-  # Functions directory is also relative to the project root.
-  functions = "api"
+  # Functions directory is also relative to the 'base' directory.
+  functions = "."
 
 [[redirects]]
   from = "/api/*"
