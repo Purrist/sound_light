@@ -1,4 +1,3 @@
-// This is the final, unified script. It works both locally and on Vercel/Netlify.
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. STATE AND DOM ---
     const state = { isRunning: false, isPaused: false, currentPhase: 'idle', breathPhase: 'inhale', animationFrameId: null, runTimerId: null, totalRunTime: 0, startTime: 0, syncStartTime: 0, mainAudioFile: null, auxAudioFile: null, };
