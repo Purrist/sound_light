@@ -1,6 +1,14 @@
 [build]
+  # Base directory tells Netlify where to run the build command from.
+  base = "api"
+
+  # This command will now run inside the 'api' directory.
   command = "pip install -r requirements.txt"
+
+  # Publish directory is relative to the project root.
   publish = "public"
+
+  # Functions directory is also relative to the project root.
   functions = "api"
 
 [[redirects]]
