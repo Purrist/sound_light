@@ -31,7 +31,6 @@ input[type="number"] { width: 60px; padding: 5px; background: var(--input-bg); c
 input[type="checkbox"] { width: 18px; height: 18px; margin-right: 5px;}
 select { flex-grow: 1; padding: 6px; background: var(--input-bg); color: var(--text-color); border: 1px solid #555; border-radius: 4px; }
 .add-btn { background-color: var(--primary-color); color: white; border: none; border-radius: 50%; width: 28px; height: 28px; font-size: 20px; font-weight: bold; cursor: pointer; line-height: 26px; flex-shrink: 0; vertical-align: middle; }
-
 .master-range-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .master-endpoint { position: relative; }
 .kelvin-input.small { width: 70px; }
@@ -40,17 +39,10 @@ select { flex-grow: 1; padding: 6px; background: var(--input-bg); color: var(--t
 .color-control-row { display: grid; grid-template-columns: 80px 1fr 80px; gap: 10px; align-items: center; margin-bottom: 8px; }
 .color-control-row > label { font-size: 0.9em; justify-self: start; }
 .kelvin-input { color: #000 !important; font-weight: bold; text-align: center !important; }
-.kelvin-input.value-display {
-    background-color: var(--input-bg);
-    color: #000000 !important;
-    text-align: center !important;
-    border: 1px solid #555;
-    flex-shrink: 0;
-}
+.kelvin-input.value-display { background-color: var(--input-bg); color: #000000 !important; text-align: center !important; border: 1px solid #555; flex-shrink: 0; }
 .kelvin-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 12px; background: #555; border-radius: 5px; outline: none; transition: opacity .2s; cursor: pointer; border: 1px solid #666; }
 .kelvin-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: #fff; border-radius: 50%; cursor: pointer; border: 2px solid #333; }
 .kelvin-slider::-moz-range-thumb { width: 20px; height: 20px; background: #fff; border-radius: 50%; cursor: pointer; border: 2px solid #333; }
-
 #toggle-console-btn { position: absolute; top: 50%; right: -25px; transform: translateY(-50%); width: 25px; height: 80px; border: 1px solid var(--border-color); border-left: none; background: var(--bg-color); color: #ccc; cursor: pointer; border-radius: 0 8px 8px 0; font-size: 16px; display: flex; align-items: center; justify-content: center; }
 .console-wrapper.collapsed { transform: translateX(calc(-1 * var(--console-width))); }
 .presets-panel-wrapper { position: fixed; top: 0; right: 0; z-index: 10; height: 100vh; transition: transform 0.4s ease-in-out; }
@@ -64,7 +56,8 @@ select { flex-grow: 1; padding: 6px; background: var(--input-bg); color: var(--t
 .preset-list { list-style: none; padding: 0; }
 .preset-list li { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #2c2c2c; border-radius: 4px; margin-bottom: 8px; transition: background-color 0.2s; }
 .preset-list li.is-default { background-color: #3c4c5a; border-left: 3px solid var(--primary-color); padding-left: 9px; }
-.preset-list .preset-name { font-weight: bold; flex-grow: 1; }
+.preset-list .preset-name { font-weight: bold; flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-actions { display: flex; align-items: center; }
 .preset-actions button { background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer; padding: 4px 8px; font-size: 12px; transition: background-color 0.2s; margin-left: 5px; }
 .preset-actions button:disabled { background: #333; color: #777; cursor: not-allowed; }
 .preset-actions .apply-btn:hover:not(:disabled) { background-color: #28a745; }
@@ -88,3 +81,27 @@ select { flex-grow: 1; padding: 6px; background: var(--input-bg); color: var(--t
 .modal-actions button { flex-grow: 1; padding: 10px 25px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
 .modal-actions button:first-of-type { background: var(--primary-color); color: white; }
 .modal-actions button.cancel-btn { background: #6c757d; color: white; }
+
+/* --- Additions for Auth and User Management --- */
+#auth-container { display: flex; justify-content: center; align-items: center; width: 100vw; height: 100vh; background-color: #121212; }
+.auth-box { width: 90%; max-width: 380px; padding: 30px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
+.auth-form h2 { text-align: center; color: var(--primary-color); margin-bottom: 20px; }
+.auth-form input { width: 100%; padding: 12px; margin-bottom: 15px; box-sizing: border-box; background: var(--input-bg); border: 1px solid #555; color: var(--text-color); border-radius: 4px; font-size: 1em; }
+.auth-form button { width: 100%; padding: 12px; border: none; border-radius: 4px; background-color: var(--primary-color); color: white; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: background-color 0.2s; }
+.auth-form button:hover { background-color: #0088cc; }
+.auth-switch { text-align: center; margin-top: 20px; font-size: 0.9em; }
+.auth-switch a { color: var(--primary-color); text-decoration: none; font-weight: bold; }
+.error-message { color: #dc3545; text-align: center; margin-top: 10px; min-height: 1.2em; font-weight: bold; }
+.hidden { display: none !important; }
+.presets-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.presets-header h2 { margin: 0; }
+#user-info { display: flex; align-items: center; gap: 10px; }
+#username-display { font-weight: bold; color: #ffc107; }
+#logout-btn { background: #6c757d; color: white; border: none; border-radius: 50%; width: 28px; height: 28px; font-size: 18px; cursor: pointer; line-height: 28px; display: flex; align-items: center; justify-content: center; }
+.upload-btn-label { background-color: var(--primary-color); color: white; border-radius: 50%; width: 24px; height: 24px; font-size: 20px; font-weight: bold; cursor: pointer; display: inline-flex; justify-content: center; align-items: center; line-height: 24px; flex-shrink: 0; }
+.hidden-upload { display: none; }
+.preset-list li.is-global .preset-name::before { content: '🌐'; margin-right: 8px; font-size: 0.8em; opacity: 0.7; display: inline-block; }
+.preset-list li.is-global .delete-btn { visibility: hidden; }
+/* Make user delete buttons visible */
+.preset-list li.is-user .delete-btn { visibility: visible; }
+.preset-list.audio-list .preset-name { max-width: 200px; }

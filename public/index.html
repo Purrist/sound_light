@@ -6,80 +6,125 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="light-background"></div>
-    <div id="guide-text-overlay"></div>
-    <div id="status-dashboard" class="hidden">
-        <div id="run-status">--</div>
-        <div id="light-status">--</div>
-        <div id="sound-status">--</div>
-    </div>
-    <main class="main-container">
-        <div class="console-wrapper">
-            <div class="console">
-                <div class="control-group">
-                    <div class="control-row"><label>呼吸频率(次/分):</label><input type="number" id="breathsPerMin" value="6" min="2" max="15" step="1"></div>
-                </div>
-
-                <div class="control-group">
-                    <!--<h3 class="group-title">光照控制</h3>-->
-                    <div class="master-range-container">
-                        <div class="master-endpoint">
-                            <input type="number" id="masterKelvinStart" class="kelvin-input small" value="1000">
-                            <input type="color" id="masterHexStart" class="color-picker-master">
-                        </div>
-                        <div id="masterGradientBar" class="master-gradient-bar"></div>
-                        <div class="master-endpoint">
-                            <input type="number" id="masterKelvinEnd" class="kelvin-input small" value="8000">
-                             <input type="color" id="masterHexEnd" class="color-picker-master">
-                        </div>
-                    </div>
-                    <div class="color-control-row">
-                        <label>默认值:</label>
-                        <input type="range" id="kelvinSliderDefault" class="kelvin-slider">
-                        <input type="number" id="kelvinDefault" class="kelvin-input value-display">
-                    </div>
-                    <div class="color-control-row">
-                        <label>最大值:</label>
-                        <input type="range" id="kelvinSliderMin" class="kelvin-slider">
-                        <input type="number" id="kelvinMin" class="kelvin-input value-display">
-                    </div>
-                    <div class="color-control-row">
-                        <label>最小值:</label>
-                        <input type="range" id="kelvinSliderMax" class="kelvin-slider">
-                        <input type="number" id="kelvinMax" class="kelvin-input value-display">
-                    </div>
-                    <input type="hidden" id="defaultColor"><input type="hidden" id="warmColor"><input type="hidden" id="coolColor">
-                </div>
-
-                <div class="control-group">
-                    <div class="control-row"><label for="soundscapeSelect">选择声景:</label><select id="soundscapeSelect"></select></div>
-                    <div class="control-row"><input type="checkbox" id="panningEnable"><label for="panningEnable">立体声效果</label><label for="panningPeriod">周期(s):</label><input type="number" id="panningPeriod" value="10" min="1" disabled></div>
-                </div>
-                <div class="control-group">
-                    <h3 class="group-title">主轨 (随呼吸变化)</h3>
-                    <div class="control-row"><label>音频:</label><span id="mainTrackName" class="track-name">无</span><button id="editMainTrackBtn" class="edit-track-btn">选择</button></div>
-                    <div class="control-row"><label>默认响度(dB):</label><input type="number" id="mainVolDefault" value="30" min="0" max="100"></div>
-                    <div class="control-row"><label>响度范围(dB):</label><input type="number" id="mainVolMin" value="0" min="0" max="100" title="最小响度"><span>-</span><input type="number" id="mainVolMax" value="80" min="0" max="100" title="最大响度"></div>
-                </div>
-                <div class="control-group">
-                    <h3 class="group-title">辅轨 (固定音量)</h3>
-                     <div class="control-row"><label>音频:</label><span id="auxTrackName" class="track-name">无</span><button id="editAuxTrackBtn" class="edit-track-btn">选择</button></div>
-                    <div class="control-row"><input type="checkbox" id="auxEnable"><label for="auxEnable">启用</label><label>响度(dB):</label><input type="number" id="auxVolume" value="50" min="0" max="100" disabled></div>
-                </div>
-                <div class="control-group">
-                    <h3 class="group-title">声光渐入设置</h3>
-                    <div class="control-row"><label>光:</label><label>进入时间 <input type="number" id="lightDelay" value="5" min="0"> s</label><label>渐入时长 <input type="number" id="lightDuration" value="10" min="0"> s</label></div>
-                    <div class="control-row"><label>声:</label><label>进入时间 <input type="number" id="soundDelay" value="10" min="0"> s</label><label>渐入时长 <input type="number" id="soundDuration" value="10" min="0"> s</label></div>
-                </div>
-                <div class="button-group"><button id="startStopBtn">开始</button><button id="saveConfigBtn">保存配置</button><button id="resetBtn">重启</button></div>
-            </div>
-            <button id="toggle-console-btn" title="收起/展开面板">◀</button>
+    <!-- Auth Container: 登录和注册界面 -->
+    <div id="auth-container">
+        <div class="auth-box">
+            <!-- Login Form -->
+            <form id="login-form" class="auth-form">
+                <h2>登录</h2>
+                <input type="text" id="login-username" placeholder="用户名" required>
+                <input type="password" id="login-password" placeholder="密码" required>
+                <button type="submit">登录</button>
+                <p class="auth-switch">还没有账户？ <a href="#" id="show-register">立即注册</a></p>
+                <p id="login-error" class="error-message"></p>
+            </form>
+            <!-- Register Form -->
+            <form id="register-form" class="auth-form hidden">
+                <h2>注册</h2>
+                <input type="text" id="register-username" placeholder="用户名" required>
+                <input type="password" id="register-password" placeholder="密码" required>
+                <button type="submit">注册</button>
+                <p class="auth-switch">已有账户？ <a href="#" id="show-login">返回登录</a></p>
+                <p id="register-error" class="error-message"></p>
+            </form>
         </div>
-        <aside class="presets-panel-wrapper"><button id="toggle-presets-btn" title="收起/展开面板">▶</button><div class="presets-panel"><h2>配置管理</h2><div class="default-preset-display"><h3>当前默认</h3><div id="current-default-config">无</div></div><h3>控制配置</h3><ul id="configList" class="preset-list"></ul><h3>声景管理 <button id="addSoundscapeBtn" class="add-btn" title="创建新声景">+</button></h3><ul id="soundscapeManagementList" class="preset-list"></ul></div></aside>
-    </main>
-    <div id="saveConfigModal" class="modal-overlay hidden"><div class="modal-content"><h3>保存当前配置</h3><input type="text" id="configNameInput" placeholder="为你的配置命名..."><div class="modal-actions"><button id="confirmSaveConfigBtn">确定</button><button class="cancel-btn">取消</button></div></div></div>
-    <div id="soundscapeModal" class="modal-overlay hidden"><div class="modal-content"><h3 id="soundscapeModalTitle">创建新声景</h3><input type="text" id="soundscapeNameInput" placeholder="为声景命名..."><label for="mainTrackSelect">主轨音频:</label><select id="mainTrackSelect"></select><label for="auxTrackSelect">辅轨音频 (可选):</label><select id="auxTrackSelect"></select><div class="modal-actions"><button id="confirmSaveSoundscapeBtn">保存</button><button class="cancel-btn">取消</button></div></div></div>
-    <audio id="mainAudio" loop></audio><audio id="auxAudio" loop></audio>
+    </div>
+    
+    <!-- Main App Container: 登录后显示的主应用界面 -->
+    <div id="app-container" class="hidden">
+        <div id="light-background"></div>
+        <div id="guide-text-overlay"></div>
+        <div id="status-dashboard" class="hidden">
+            <div id="run-status">--</div>
+            <div id="light-status">--</div>
+            <div id="sound-status">--</div>
+        </div>
+        <main class="main-container">
+            <div class="console-wrapper">
+                <div class="console">
+                    <div class="control-group">
+                        <div class="control-row"><label>呼吸频率(次/分):</label><input type="number" id="breathsPerMin" value="6" min="2" max="15" step="1"></div>
+                    </div>
+
+                    <div class="control-group">
+                        <!--<h3 class="group-title">光照控制</h3>-->
+                        <div class="master-range-container">
+                            <div class="master-endpoint">
+                                <input type="number" id="masterKelvinStart" class="kelvin-input small" value="1000">
+                                <input type="color" id="masterHexStart" class="color-picker-master">
+                            </div>
+                            <div id="masterGradientBar" class="master-gradient-bar"></div>
+                            <div class="master-endpoint">
+                                <input type="number" id="masterKelvinEnd" class="kelvin-input small" value="8000">
+                                 <input type="color" id="masterHexEnd" class="color-picker-master">
+                            </div>
+                        </div>
+                        <div class="color-control-row">
+                            <label>默认值:</label>
+                            <input type="range" id="kelvinSliderDefault" class="kelvin-slider">
+                            <input type="number" id="kelvinDefault" class="kelvin-input value-display">
+                        </div>
+                        <div class="color-control-row">
+                            <label>最大值:</label>
+                            <input type="range" id="kelvinSliderMin" class="kelvin-slider">
+                            <input type="number" id="kelvinMin" class="kelvin-input value-display">
+                        </div>
+                        <div class="color-control-row">
+                            <label>最小值:</label>
+                            <input type="range" id="kelvinSliderMax" class="kelvin-slider">
+                            <input type="number" id="kelvinMax" class="kelvin-input value-display">
+                        </div>
+                        <input type="hidden" id="defaultColor"><input type="hidden" id="warmColor"><input type="hidden" id="coolColor">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-row"><label for="soundscapeSelect">选择声景:</label><select id="soundscapeSelect"></select></div>
+                        <div class="control-row"><input type="checkbox" id="panningEnable"><label for="panningEnable">立体声效果</label><label for="panningPeriod">周期(s):</label><input type="number" id="panningPeriod" value="10" min="1" disabled></div>
+                    </div>
+                    <div class="control-group">
+                        <h3 class="group-title">主轨 (随呼吸变化)</h3>
+                        <div class="control-row"><label>音频:</label><span id="mainTrackName" class="track-name">无</span><button id="editMainTrackBtn" class="edit-track-btn">选择</button></div>
+                        <div class="control-row"><label>默认响度(dB):</label><input type="number" id="mainVolDefault" value="30" min="0" max="100"></div>
+                        <div class="control-row"><label>响度范围(dB):</label><input type="number" id="mainVolMin" value="0" min="0" max="100" title="最小响度"><span>-</span><input type="number" id="mainVolMax" value="80" min="0" max="100" title="最大响度"></div>
+                    </div>
+                    <div class="control-group">
+                        <h3 class="group-title">辅轨 (固定音量)</h3>
+                         <div class="control-row"><label>音频:</label><span id="auxTrackName" class="track-name">无</span><button id="editAuxTrackBtn" class="edit-track-btn">选择</button></div>
+                        <div class="control-row"><input type="checkbox" id="auxEnable"><label for="auxEnable">启用</label><label>响度(dB):</label><input type="number" id="auxVolume" value="50" min="0" max="100" disabled></div>
+                    </div>
+                    <div class="control-group">
+                        <h3 class="group-title">声光渐入设置</h3>
+                        <div class="control-row"><label>光:</label><label>进入时间 <input type="number" id="lightDelay" value="5" min="0"> s</label><label>渐入时长 <input type="number" id="lightDuration" value="10" min="0"> s</label></div>
+                        <div class="control-row"><label>声:</label><label>进入时间 <input type="number" id="soundDelay" value="10" min="0"> s</label><label>渐入时长 <input type="number" id="soundDuration" value="10" min="0"> s</label></div>
+                    </div>
+                    <div class="button-group"><button id="startStopBtn">开始</button><button id="saveConfigBtn">保存配置</button><button id="resetBtn">重启</button></div>
+                </div>
+                <button id="toggle-console-btn" title="收起/展开面板">◀</button>
+            </div>
+            <aside class="presets-panel-wrapper">
+                <button id="toggle-presets-btn" title="收起/展开面板">▶</button>
+                <div class="presets-panel">
+                    <div class="presets-header">
+                        <h2>配置管理</h2>
+                        <div id="user-info">
+                            <span id="username-display"></span>
+                            <button id="logout-btn" title="登出">⏻</button>
+                        </div>
+                    </div>
+                    <div class="default-preset-display"><h3>当前默认</h3><div id="current-default-config">无</div></div>
+                    <h3>控制配置</h3><ul id="configList" class="preset-list"></ul>
+                    <h3>声景管理 <button id="addSoundscapeBtn" class="add-btn" title="创建新声景">+</button></h3><ul id="soundscapeManagementList" class="preset-list"></ul>
+                    <h3>主轨音频 <label class="upload-btn-label" title="上传主轨音频">+<input type="file" id="mainAudioUpload" class="hidden-upload" accept=".wav,.mp3,.ogg"></label></h3><ul id="mainAudioList" class="preset-list audio-list"></ul>
+                    <h3>辅轨音频 <label class="upload-btn-label" title="上传辅轨音频">+<input type="file" id="auxAudioUpload" class="hidden-upload" accept=".wav,.mp3,.ogg"></label></h3><ul id="auxAudioList" class="preset-list audio-list"></ul>
+                </div>
+            </aside>
+        </main>
+        <div id="saveConfigModal" class="modal-overlay hidden"><div class="modal-content"><h3>保存当前配置</h3><input type="text" id="configNameInput" placeholder="为你的配置命名..."><div class="modal-actions"><button id="confirmSaveConfigBtn">确定</button><button class="cancel-btn">取消</button></div></div></div>
+        <div id="soundscapeModal" class="modal-overlay hidden"><div class="modal-content"><h3 id="soundscapeModalTitle">创建新声景</h3><input type="text" id="soundscapeNameInput" placeholder="为声景命名..."><label for="mainTrackSelect">主轨音频:</label><select id="mainTrackSelect"></select><label for="auxTrackSelect">辅轨音频 (可选):</label><select id="auxTrackSelect"></select><div class="modal-actions"><button id="confirmSaveSoundscapeBtn">保存</button><button class="cancel-btn">取消</button></div></div></div>
+    </div>
+    
+    <audio id="mainAudio" loop></audio>
+    <audio id="auxAudio" loop></audio>
     <script src="script.js"></script>
 </body>
 </html>
