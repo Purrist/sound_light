@@ -1,0 +1,21 @@
+# JetBrains IDE folder (like PyCharm, IntelliJ)
+.idea/
+
+# VS Code folder
+.vscode/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual Environment
+.env
+venv/
+.venv/
+
+# Instance folder containing local database and user data
+/instance/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
