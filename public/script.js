@@ -48,6 +48,10 @@ document.addEventListener('DOMContentLoaded', () => {
         mainTrackSelect: document.getElementById('mainTrackSelect'), auxTrackSelect: document.getElementById('auxTrackSelect'),
         confirmSaveSoundscapeBtn: document.getElementById('confirmSaveSoundscapeBtn'),
     };
+    const GITHUB_USER = 'purrist'; // <-- 替换成您的 GitHub 用户名
+    const GITHUB_REPO = 'sound_light'; // <-- 替换成您的仓库名
+    const GITHUB_BRANCH = 'web'; // <-- 您的部署分支
+    const CDN_BASE_URL = `https://cdn.jsdelivr.net/gh/${GITHUB_USER}/${GITHUB_REPO}@${GITHUB_BRANCH}/public`;
     let audioCtx, mainGainNode, auxGainNode, pannerNode, mainSource, auxSource;
     let kelvinLookupTable = [];
     const masterRange = { start: { k: 2000, hex: '#f57e0f' }, end: { k: 8000, hex: '#8cb1ff' } };
@@ -270,24 +274,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- User Actions ---
         dom.startStopBtn.addEventListener('click', () => {
-            if (!state.isRunning) {
-                setupAudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume();
-                state.isRunning = true; state.isPaused = false; state.currentPhase = 'fadeIn'; state.startTime = performance.now(); lastFrameTime = 0;
-                dom.lightBg.style.transition = 'none';
-                if (state.mainAudioFile) { const path = state.mainAudioIsGlobal ? `/static/mainsound/${state.mainAudioFile}` : `/static/user/mainsound/${state.mainAudioFile}`; dom.mainAudio.src = path; dom.mainAudio.play().catch(e=>console.error("Main audio play failed:", e)); }
-                if (dom.auxEnable.checked && state.auxAudioFile) { const path = state.auxAudioIsGlobal ? `/static/plussound/${state.auxAudioFile}` : `/static/user/plussound/${state.auxAudioFile}`; dom.auxAudio.src = path; dom.auxAudio.play().catch(e=>console.error("Aux audio play failed:", e)); }
-                startRunTimer(); state.animationFrameId = requestAnimationFrame(mainLoop);
-                dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
-            } else if (state.isPaused) {
-                state.isPaused = false; if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-                dom.mainAudio.play().catch(e => {}); dom.auxAudio.play().catch(e => {});
-                lastFrameTime = performance.now(); state.animationFrameId = requestAnimationFrame(mainLoop);
-                dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
-            } else {
-                state.isPaused = true; if(audioCtx) audioCtx.suspend();
-                dom.mainAudio.pause(); dom.auxAudio.pause();
-                cancelAnimationFrame(state.animationFrameId);
-                dom.startStopBtn.textContent = '继续'; dom.startStopBtn.className = 'paused';
+            if (state.mainAudioFile) {
+                let path;
+                if (state.mainAudioIsGlobal) {
+                    // Load global audio from the super-fast CDN
+                    path = `${CDN_BASE_URL}/static/mainsound/${state.mainAudioFile}`;
+                } else {
+                    // Load user-uploaded audio from the PythonAnywhere server (will be slower)
+                    path = `/static/user/mainsound/${state.mainAudioFile}`;
+                }
+                dom.mainAudio.src = path;
+                dom.mainAudio.play().catch(e => console.error("Main audio play failed:", e));
+            }
+
+            if (dom.auxEnable.checked && state.auxAudioFile) {
+                let path;
+                if (state.auxAudioIsGlobal) {
+                    // Load global audio from the CDN
+                    path = `${CDN_BASE_URL}/static/plussound/${state.auxAudioFile}`;
+                } else {
+                    // Load user-uploaded audio from the server
+                    path = `/static/user/plussound/${state.auxAudioFile}`;
+                }
+                dom.auxAudio.src = path;
+                dom.auxAudio.play().catch(e => console.error("Aux audio play failed:", e));
             }
         });
         dom.resetBtn.addEventListener('click', () => { if(state.isRunning && !confirm("确定停止并重启?")) return; resetAll(); });
