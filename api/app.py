@@ -330,22 +330,35 @@ def create_app():
                     return send_from_directory(user_audio_path, filename)
         return send_from_directory(app.static_folder, 'index.html')
 
-    @app.cli.command("create-admin")
-    def create_admin_command():
-        """Creates or promotes a user to be an admin."""
-        username = input("Enter username: ")
+    @app.cli.command("set-admin")
+    def set_admin_command():
+        """Creates a new admin user or promotes an existing user and sets their password."""
+        import getpass
+        
+        username = input("Enter username to make admin: ")
+        password = getpass.getpass("Enter a new password for this admin (leave blank to not change): ")
+
         user = User.query.filter_by(username=username).first()
+
         if user:
+            print(f"User '{username}' found. Promoting to admin...")
             user.is_admin = True
+            if password:
+                user.set_password(password)
+                print("Password has been updated.")
             db.session.commit()
-            print(f"User '{username}' has been promoted to an admin.")
+            print(f"User '{username}' is now an admin.")
         else:
-            password = getpass.getpass("User not found. Enter password to create a new admin user: ")
+            print(f"User '{username}' not found. Creating a new admin user...")
+            if not password:
+                print("Error: A password is required for a new user.")
+                return
             admin_user = User(username=username, is_admin=True)
             admin_user.set_password(password)
             db.session.add(admin_user)
             db.session.commit()
             print(f"Admin user '{username}' created successfully.")
+
 
     @app.cli.command("reset-password")
     def reset_password_command():
