@@ -148,24 +148,32 @@ def create_app():
             json.dump(data, f, ensure_ascii=False, indent=4)
         return jsonify({'message': f'Soundset {name} saved successfully'})
 
+    # 位于 api/app.py 中
+
     @app.route('/api/soundsets', methods=['DELETE'])
     @login_required
     def delete_soundset():
         name = request.json.get('name')
         if not name: return jsonify({'error': 'Name is required'}), 400
 
-        # KEY CHANGE: Determine path based on admin status
+        # KEY CHANGE: First, try to delete from the user's directory
+        user_path = get_user_path('soundset')
+        user_file_path = os.path.join(user_path, f"{name}.json")
+        if os.path.exists(user_file_path):
+            os.remove(user_file_path)
+            return jsonify({'message': f'User soundset {name} deleted successfully'})
+
+        # If not found in user's dir, an ADMIN can try deleting from the global directory
         if current_user.is_admin:
-            path_to_check = get_global_path('soundset')
-        else:
-            path_to_check = get_user_path('soundset')
-
-        file_path = os.path.join(path_to_check, f"{name}.json")
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            return jsonify({'message': f'Soundset {name} deleted successfully'})
-        return jsonify({'error': 'Soundset not found in your accessible directory'}), 404
-
+            global_path = get_global_path('soundset')
+            global_file_path = os.path.join(global_path, f"{name}.json")
+            if os.path.exists(global_file_path):
+                os.remove(global_file_path)
+                return jsonify({'message': f'Global soundset {name} deleted successfully'})
+        
+        # If it's not found in either place (or user is not admin)
+        return jsonify({'error': 'Soundset not found or permission denied'}), 404
+    
     @app.route('/api/controlsets', methods=['POST'])
     @login_required
     def save_controlset():
@@ -183,23 +191,30 @@ def create_app():
             json.dump(settings, f, ensure_ascii=False, indent=4)
         return jsonify({'message': f'Controlset {name} saved successfully'})
 
+    # 位于 api/app.py 中
+
     @app.route('/api/controlsets', methods=['DELETE'])
     @login_required
     def delete_controlset():
         name = request.json.get('name')
         if not name: return jsonify({'error': 'Name is required'}), 400
 
-        # KEY CHANGE: Determine path based on admin status
-        if current_user.is_admin:
-            path_to_check = get_global_path('controlset')
-        else:
-            path_to_check = get_user_path('controlset')
+        # KEY CHANGE: First, try to delete from the user's directory
+        user_path = get_user_path('controlset')
+        user_file_path = os.path.join(user_path, f"{name}.json")
+        if os.path.exists(user_file_path):
+            os.remove(user_file_path)
+            return jsonify({'message': f'User controlset {name} deleted successfully'})
 
-        file_path = os.path.join(path_to_check, f"{name}.json")
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            return jsonify({'message': f'Controlset {name} deleted successfully'})
-        return jsonify({'error': 'Controlset not found in your accessible directory'}), 404
+        # If not found in user's dir, an ADMIN can try deleting from the global directory
+        if current_user.is_admin:
+            global_path = get_global_path('controlset')
+            global_file_path = os.path.join(global_path, f"{name}.json")
+            if os.path.exists(global_file_path):
+                os.remove(global_file_path)
+                return jsonify({'message': f'Global controlset {name} deleted successfully'})
+
+        return jsonify({'error': 'Controlset not found or permission denied'}), 404
 
     # 替换为这个正确的版本
     @app.route('/api/controlsets/default', methods=['GET', 'POST'])
@@ -256,23 +271,30 @@ def create_app():
         file.save(os.path.join(upload_path, filename))
         return jsonify({'message': '文件上传成功', 'filename': filename})
 
+    # 位于 api/app.py 中
+
     @app.route('/api/delete-audio/<track_type>/<filename>', methods=['DELETE'])
     @login_required
     def delete_audio(track_type, filename):
         if track_type not in ['mainsound', 'plussound']: return jsonify({'error': '无效的音轨类型'}), 400
         safe_filename = secure_filename(filename)
 
-        # KEY CHANGE: Determine path based on admin status
+        # KEY CHANGE: First, try to delete from the user's directory
+        user_path = get_user_path(track_type)
+        user_file_path = os.path.join(user_path, safe_filename)
+        if os.path.exists(user_file_path):
+            os.remove(user_file_path)
+            return jsonify({'message': f'User audio file {safe_filename} deleted successfully'})
+
+        # If not found, an ADMIN can try deleting from the global directory
         if current_user.is_admin:
-            path_to_check = get_global_path(track_type)
-        else:
-            path_to_check = get_user_path(track_type)
+            global_path = get_global_path(track_type)
+            global_file_path = os.path.join(global_path, safe_filename)
+            if os.path.exists(global_file_path):
+                os.remove(global_file_path)
+                return jsonify({'message': f'Global audio file {safe_filename} deleted successfully'})
         
-        file_to_delete = os.path.join(path_to_check, safe_filename)
-        if os.path.exists(file_to_delete):
-            os.remove(file_to_delete)
-            return jsonify({'message': '文件删除成功'})
-        return jsonify({'error': '文件未找到或您没有权限删除'}), 404
+        return jsonify({'error': 'File not found or permission denied'}), 404
 
     # --- Serve Frontend and CLI (Unchanged) ---
     @app.route('/', defaults={'path': ''})
@@ -305,6 +327,33 @@ def create_app():
             db.session.add(admin_user)
             db.session.commit()
             print(f"Admin user '{username}' created successfully.")
+
+    @app.cli.command("reset-password")
+    def reset_password_command():
+        """Resets the password for a given user."""
+        import getpass
+        
+        username = input("Enter username for password reset: ")
+        user = User.query.filter_by(username=username).first()
+
+        if not user:
+            print(f"Error: User '{username}' not found.")
+            return
+
+        password = getpass.getpass("Enter new password: ")
+        password_confirm = getpass.getpass("Confirm new password: ")
+
+        if password != password_confirm:
+            print("Error: Passwords do not match.")
+            return
+        
+        if not password:
+            print("Error: Password cannot be empty.")
+            return
+
+        user.set_password(password)
+        db.session.commit()
+        print(f"Password for user '{username}' has been successfully reset.")
 
     return app
 
