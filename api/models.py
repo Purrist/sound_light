@@ -6,7 +6,8 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
     password_hash = db.Column(db.String(150))
-    is_admin = db.Column(db.Boolean, default=False) # 为未来的管理员功能预留
+    # 这个字段就是管理员的标记！
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
