@@ -105,6 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.panningEnable.dispatchEvent(new Event('change')); dom.auxEnable.dispatchEvent(new Event('change'));
     }
 
+    // 位于 public/script.js 中
     async function renderConfigList() {
         try {
             const configs = await apiCall('/api/controlsets');
@@ -116,35 +117,93 @@ document.addEventListener('DOMContentLoaded', () => {
                 li.className = (item.name === defaultName) ? 'is-default' : '';
                 if(item.is_global) li.classList.add('is-global');
                 li.innerHTML = `<span class="preset-name">${item.name}</span><div class="preset-actions"><button class="apply-btn" title="应用">✔</button><button class="default-btn" title="设为默认">⭐</button><button class="delete-btn" title="删除">✕</button></div>`;
+                
                 li.querySelector('.apply-btn').addEventListener('click', async () => applySettings(await apiCall(`/api/controlsets/${item.name}`)));
                 li.querySelector('.default-btn').addEventListener('click', async () => { await apiCall('/api/controlsets/default', 'POST', { name: item.name }); renderConfigList(); });
-                li.querySelector('.delete-btn').addEventListener('click', async () => { if (confirm(`确定删除您的配置 "${item.name}"?`)) { await apiCall('/api/controlsets', 'DELETE', { name: item.name }); renderConfigList(); } });
+                
+                // KEY CHANGE: Attach the delete listener to ALL items.
+                // The backend will handle the permission logic.
+                li.querySelector('.delete-btn').addEventListener('click', async () => {
+                    if (confirm(`确定删除配置 "${item.name}"?`)) {
+                        try {
+                            await apiCall('/api/controlsets', 'DELETE', { name: item.name });
+                            await renderConfigList();
+                        } catch (error) {
+                            alert(`删除失败: ${error.message}`);
+                        }
+                    }
+                });
                 dom.configList.appendChild(li);
             });
         } catch (e) { console.error("Failed to render config list:", e); }
     }
 
+    // 位于 public/script.js 中
+    // 位于 public/script.js 中
+// 请用这个函数完整替换掉旧的同名函数
+
     async function renderSoundscapeList() {
         try {
             state.soundscapes = await apiCall('/api/soundsets');
-            const currentVal = dom.soundscapeSelect.value;
+            const currentSelectedSoundscape = dom.soundscapeSelect.value;
+
+            // 刷新主选择器 (下拉菜单)
             dom.soundscapeSelect.innerHTML = '';
-            state.soundscapes.forEach(item => dom.soundscapeSelect.innerHTML += `<option value="${item.name}">${item.name}</option>`);
-            if (currentVal && state.soundscapes.some(s => s.name === currentVal)) dom.soundscapeSelect.value = currentVal; else if (state.soundscapes.length > 0) dom.soundscapeSelect.value = state.soundscapes[0].name;
-            
+            state.soundscapes.forEach(item => {
+                dom.soundscapeSelect.innerHTML += `<option value="${item.name}">${item.name}</option>`;
+            });
+
+            // 确保之前的选择在刷新后仍然有效
+            if (currentSelectedSoundscape && state.soundscapes.some(s => s.name === currentSelectedSoundscape)) {
+                dom.soundscapeSelect.value = currentSelectedSoundscape;
+            } else if (state.soundscapes.length > 0) {
+                dom.soundscapeSelect.value = state.soundscapes[0].name;
+            }
+
+            // 刷新右侧的声景管理列表
             dom.soundscapeManagementList.innerHTML = '';
             state.soundscapes.forEach(item => {
                 const li = document.createElement('li');
-                if(item.is_global) li.classList.add('is-global');
-                li.innerHTML = `<span class="preset-name">${item.name}</span><div class="preset-actions"><button class="delete-btn" title="删除">✕</button></div>`;
+                if (item.is_global) {
+                    li.classList.add('is-global');
+                }
+
+                li.innerHTML = `<span class="preset-name">${item.name}</span>
+                                <div class="preset-actions">
+                                    <button class="delete-btn" title="删除">✕</button>
+                                </div>`;
+
                 const deleteBtn = li.querySelector('.delete-btn');
-                if (item.name === dom.soundscapeSelect.value) { deleteBtn.disabled = true; deleteBtn.title = '无法删除正在使用的声景'; }
-                deleteBtn.addEventListener('click', async () => { if (confirm(`确定删除声景 "${item.name}"?`)) { await apiCall('/api/soundsets', 'DELETE', { name: item.name }); await renderSoundscapeList(); await renderConfigList(); } });
+
+                // 关键修复：这是唯一应该禁用删除按钮的条件
+                // 只有当这个声景是当前正在被激活使用的声景时，才禁用删除
+                if (item.name === dom.soundscapeSelect.value) {
+                    deleteBtn.disabled = true;
+                    deleteBtn.title = '无法删除正在使用的声景';
+                }
+
+                // 为所有可用的删除按钮添加点击事件
+                deleteBtn.addEventListener('click', async () => {
+                    if (confirm(`确定删除声景 "${item.name}"?`)) {
+                        try {
+                            await apiCall('/api/soundsets', 'DELETE', { name: item.name });
+                            // 删除成功后，彻底刷新所有相关列表
+                            await renderSoundscapeList();
+                            await renderConfigList(); 
+                        } catch(error) {
+                            alert(`删除失败: ${error.message}`);
+                        }
+                    }
+                });
+
                 dom.soundscapeManagementList.appendChild(li);
             });
-        } catch(e) { console.error("Failed to render soundscape list:", e); }
+        } catch(e) {
+            console.error("Failed to render soundscape list:", e);
+        }
     }
     
+    // 位于 public/script.js 中
     async function renderAudioLists() {
         state.audioFiles = await apiCall('/api/get-audio-files');
         const populateList = (listElement, files, trackType) => {
@@ -154,7 +213,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 const li = document.createElement('li');
                 li.className = file.is_global ? 'is-global' : 'is-user';
                 li.innerHTML = `<span class="preset-name">${file.name}</span><div class="preset-actions"><button class="delete-btn" title="删除">✕</button></div>`;
-                li.querySelector('.delete-btn').addEventListener('click', async () => { if (confirm(`确定删除您上传的音频 "${file.name}"？`)) { try { await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE'); await renderAudioLists(); } catch (error) { alert(`删除失败: ${error.message}`); } } });
+                
+                // KEY CHANGE: Attach the delete listener to ALL audio files.
+                li.querySelector('.delete-btn').addEventListener('click', async () => {
+                    if (confirm(`确定要删除音频 "${file.name}" 吗？`)) {
+                        try {
+                            await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE');
+                            await renderAudioLists(); // Refresh lists
+                        } catch (error) {
+                            alert(`删除失败: ${error.message}`);
+                        }
+                    }
+                });
                 listElement.appendChild(li);
             });
         };

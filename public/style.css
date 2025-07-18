@@ -101,7 +101,7 @@ select { flex-grow: 1; padding: 6px; background: var(--input-bg); color: var(--t
 .upload-btn-label { background-color: var(--primary-color); color: white; border-radius: 50%; width: 24px; height: 24px; font-size: 20px; font-weight: bold; cursor: pointer; display: inline-flex; justify-content: center; align-items: center; line-height: 24px; flex-shrink: 0; }
 .hidden-upload { display: none; }
 .preset-list li.is-global .preset-name::before { content: '🌐'; margin-right: 8px; font-size: 0.8em; opacity: 0.7; display: inline-block; }
-.preset-list li.is-global .delete-btn { visibility: hidden; }
+/*.preset-list li.is-global .delete-btn { visibility: hidden; }*/
 /* Make user delete buttons visible */
 .preset-list li.is-user .delete-btn { visibility: visible; }
 .preset-list.audio-list .preset-name { max-width: 200px; }
