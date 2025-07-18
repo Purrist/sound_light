@@ -10,13 +10,19 @@ from flask_migrate import Migrate
 from flask_login import login_required, current_user
 import getpass # 为了CLI命令导入
 
+
 # --- Path Definitions ---
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
-# Detect if we are running on Render
+# Detect if we are running on Render by checking for a specific environment variable
 ON_RENDER = os.environ.get('ON_RENDER')
+
+# Set the instance folder path based on the environment
 if ON_RENDER:
+    # On Render, the data directory for persistent storage is mounted at /var/data
+    # We will create our instance folder inside it.
     INSTANCE_FOLDER = '/var/data/instance'
 else:
+    # Locally, use the instance folder at the project root
     INSTANCE_FOLDER = os.path.join(APP_ROOT, '..', 'instance')
 
 PUBLIC_FOLDER = os.path.join(APP_ROOT, '..', 'public')
@@ -45,7 +51,20 @@ def create_app():
 
     # --- Configuration ---
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'a_very_secret_key_for_development_12345')
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(INSTANCE_FOLDER, 'database.db')
+
+    # KEY CHANGE: Configure database based on environment
+    if ON_RENDER:
+        # On Render, use the PostgreSQL database URL provided by the environment variable
+        database_url = os.environ.get('DATABASE_URL')
+        if database_url:
+            # Render's free PostgreSQL might use a 'postgres://' URI
+            # SQLAlchemy 2.0 prefers 'postgresql://'
+            database_url = database_url.replace("postgres://", "postgresql://")
+        app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    else:
+        # Locally, continue to use the SQLite database file
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(INSTANCE_FOLDER, 'database.db')
+
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 

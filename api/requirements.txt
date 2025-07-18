@@ -5,3 +5,6 @@ Flask-Migrate
 Flask-Cors
 Werkzeug
 gunicorn
+gevent
+psycopg2-binary
+SQLAlchemy[postgresql_psycopg2]

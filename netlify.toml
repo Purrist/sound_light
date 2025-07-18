@@ -1,14 +1,17 @@
 [build]
-  # command now runs from the project root.
-  command = "pip install -r requirements.txt"
-
-  # The frontend files are in 'public'.
-  publish = "public"
-
-  # The serverless functions are in 'api'.
-  functions = "api"
+  publish = "public/"
+  command = ""
 
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/app/:splat"
+  # ↓↓↓ 确认这里已经换成了您 Render 应用的真实地址！
+  to = "https://sound-light-api-purr.onrender.com/api/:splat" 
   status = 200
+  force = true 
+
+[[redirects]]
+  from = "/auth/*"
+  # ↓↓↓ 确认这里已经换成了您 Render 应用的真实地址！
+  to = "https://sound-light-api-purr.onrender.com/auth/:splat"
+  status = 200
+  force = true
