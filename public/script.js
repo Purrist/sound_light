@@ -4,8 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isRunning: false, isPaused: false, currentPhase: 'idle', breathPhase: 'inhale',
         animationFrameId: null, runTimerId: null, totalRunTime: 0, startTime: 0, syncStartTime: 0,
         mainAudioFile: null, auxAudioFile: null,
-        mainAudioIsGlobal: true, mainAudioOwner: null,
-        auxAudioIsGlobal: true, auxAudioOwner: null,
+        mainAudioIsGlobal: true, auxAudioIsGlobal: true,
         audioFiles: { mainsound: [], plussound: [] },
         soundscapes: [],
     };
@@ -59,13 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function apiCall(url, method = 'GET', body = null) { try { const options = { method, headers: {} }; if (body) { options.body = JSON.stringify(body); options.headers['Content-Type'] = 'application/json'; } const response = await fetch(url, options); const responseData = await response.json().catch(() => null); if (!response.ok) { const errorMessage = responseData?.error || `HTTP error! status: ${response.status}`; throw new Error(errorMessage); } return responseData; } catch (error) { console.error('API Call Failed:', url, error); throw error; } }
     
-    function setupAuthEventListeners() {
-        dom.showRegister.addEventListener('click', (e) => { e.preventDefault(); dom.loginForm.classList.add('hidden'); dom.registerForm.classList.remove('hidden'); dom.loginError.textContent = ''; dom.registerError.textContent = ''; });
-        dom.showLogin.addEventListener('click', (e) => { e.preventDefault(); dom.registerForm.classList.add('hidden'); dom.loginForm.classList.remove('hidden'); dom.loginError.textContent = ''; dom.registerError.textContent = ''; });
-        dom.loginForm.addEventListener('submit', async (e) => { e.preventDefault(); const u = document.getElementById('login-username').value; const p = document.getElementById('login-password').value; try { const d = await apiCall('/auth/login', 'POST', { username: u, password: p }); dom.loginError.textContent = ''; await handleSuccessfulLogin(d.username, d.is_admin); } catch (err) { dom.loginError.textContent = err.message; } });
-        dom.registerForm.addEventListener('submit', async (e) => { e.preventDefault(); const u = document.getElementById('register-username').value; const p = document.getElementById('register-password').value; try { await apiCall('/auth/register', 'POST', { username: u, password: p }); dom.registerError.textContent = ''; alert('注册成功！请登录。'); document.getElementById('login-username').value = u; document.getElementById('login-password').value = ''; dom.showLogin.click(); } catch (err) { dom.registerError.textContent = err.message; } });
-        dom.logoutBtn.addEventListener('click', async () => { try { await apiCall('/auth/logout', 'POST'); } catch (err) { console.error("Logout failed but proceeding:", err); } window.location.reload(); });
-    }
+    function setupAuthEventListeners() { dom.showRegister.addEventListener('click', (e) => { e.preventDefault(); dom.loginForm.classList.add('hidden'); dom.registerForm.classList.remove('hidden'); dom.loginError.textContent = ''; dom.registerError.textContent = ''; }); dom.showLogin.addEventListener('click', (e) => { e.preventDefault(); dom.registerForm.classList.add('hidden'); dom.loginForm.classList.remove('hidden'); dom.loginError.textContent = ''; dom.registerError.textContent = ''; }); dom.loginForm.addEventListener('submit', async (e) => { e.preventDefault(); const u = document.getElementById('login-username').value; const p = document.getElementById('login-password').value; try { const d = await apiCall('/auth/login', 'POST', { username: u, password: p }); dom.loginError.textContent = ''; await handleSuccessfulLogin(d.username, d.is_admin); } catch (err) { dom.loginError.textContent = err.message; } }); dom.registerForm.addEventListener('submit', async (e) => { e.preventDefault(); const u = document.getElementById('register-username').value; const p = document.getElementById('register-password').value; try { await apiCall('/auth/register', 'POST', { username: u, password: p }); dom.registerError.textContent = ''; alert('注册成功！请登录。'); document.getElementById('login-username').value = u; document.getElementById('login-password').value = ''; dom.showLogin.click(); } catch (err) { dom.registerError.textContent = err.message; } }); dom.logoutBtn.addEventListener('click', async () => { try { await apiCall('/auth/logout', 'POST'); } catch (err) { console.error("Logout failed but proceeding:", err); } window.location.reload(); }); }
     async function checkAuthStatus() { try { const data = await apiCall('/auth/status'); if (data && data.logged_in) { await handleSuccessfulLogin(data.username, data.is_admin); } else { showAuthUI(); } } catch (err) { showAuthUI(); } }
     function showAuthUI() { dom.authContainer.classList.remove('hidden'); dom.appContainer.classList.add('hidden'); }
     async function handleSuccessfulLogin(username, isAdmin) { state.isLoggedIn = true; state.username = username; state.isAdmin = isAdmin; dom.usernameDisplay.textContent = username; dom.authContainer.classList.add('hidden'); dom.appContainer.classList.remove('hidden'); await initializeApp(); }
@@ -105,26 +98,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 const li = document.createElement('li');
                 li.className = file.is_global ? 'is-global' : 'is-user';
                 let actionButtons = '';
+                if (!file.is_global) {
+                    actionButtons += `<button class="delete-btn" title="删除">✕</button>`;
+                }
                 if (state.isAdmin) {
-                    const username = file.username || state.username;
-                    actionButtons += `<button class="delete-btn" data-username="${username}" title="删除">✕</button>`;
                     if (file.is_global) {
-                        actionButtons += `<button class="unprotect-btn" title="取消保护">🔓</button>`;
-                    } else if (file.username) {
-                        actionButtons += `<button class="protect-btn" title="设为全局">🔒</button>`;
+                        actionButtons += `<button class="delete-btn" title="删除受保护文件">✕</button>`;
+                    } else {
+                        actionButtons += `<button class="protect-btn" title="保护 (设为全局)">🔒</button>`;
                     }
-                } else if (!file.is_global && file.username === state.username) {
-                    actionButtons += `<button class="delete-btn" data-username="${state.username}" title="删除">✕</button>`;
                 }
                 li.innerHTML = `<span class="preset-name">${file.name}</span><div class="preset-actions">${actionButtons}</div>`;
-                
                 const deleteBtn = li.querySelector('.delete-btn');
                 if (deleteBtn) {
                     deleteBtn.addEventListener('click', async () => {
-                        const usernameToDelete = deleteBtn.dataset.username;
                         if (confirm(`确定删除音频 "${file.name}"?`)) {
                             try {
-                                await apiCall(`/api/delete-audio/${trackType}/${usernameToDelete}/${file.name}`, 'DELETE');
+                                await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE');
                                 await renderAudioLists();
                             } catch (err) { alert(`删除失败: ${err.message}`); }
                         }
@@ -134,16 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (protectBtn) {
                     protectBtn.addEventListener('click', async () => {
                         try {
-                            await apiCall(`/api/audio/protect/${trackType}/${file.username}/${file.name}`, 'POST');
-                            await renderAudioLists();
-                        } catch (err) { alert(`操作失败: ${err.message}`); }
-                    });
-                }
-                const unprotectBtn = li.querySelector('.unprotect-btn');
-                if (unprotectBtn) {
-                    unprotectBtn.addEventListener('click', async () => {
-                        try {
-                            await apiCall(`/api/audio/unprotect/${trackType}/${file.name}`, 'POST');
+                            await apiCall(`/api/audio/protect/${trackType}/${file.name}`, 'POST');
                             await renderAudioLists();
                         } catch (err) { alert(`操作失败: ${err.message}`); }
                     });
@@ -158,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
         populateSelect(dom.auxTrackSelect, state.audioFiles.plussound, true);
     }
     
-    async function updateCurrentSoundscape(name) { if (!name) { state.mainAudioFile = null; state.auxAudioFile = null; dom.mainTrackName.textContent = '无'; dom.auxTrackName.textContent = '无'; return; } try { const data = await apiCall(`/api/soundsets/${name}`); state.mainAudioFile = data.main || null; state.auxAudioFile = data.aux || null; const mainFileObj = state.audioFiles.mainsound.find(f => f.name === data.main); const auxFileObj = state.audioFiles.plussound.find(f => f.name === data.aux); state.mainAudioIsGlobal = mainFileObj ? mainFileObj.is_global : false; state.mainAudioOwner = mainFileObj ? (mainFileObj.username || null) : null; state.auxAudioIsGlobal = auxFileObj ? auxFileObj.is_global : false; state.auxAudioOwner = auxFileObj ? (auxFileObj.username || null) : null; dom.mainTrackName.textContent = state.mainAudioFile || '无'; dom.auxTrackName.textContent = state.auxAudioFile || '无'; await renderSoundscapeList(); } catch (error) { console.error(`Failed to update soundscape to ${name}`, error); await renderSoundscapeList(); } }
+    async function updateCurrentSoundscape(name) { if (!name) { state.mainAudioFile = null; state.auxAudioFile = null; dom.mainTrackName.textContent = '无'; dom.auxTrackName.textContent = '无'; return; } try { const data = await apiCall(`/api/soundsets/${name}`); state.mainAudioFile = data.main || null; state.auxAudioFile = data.aux || null; const mainFileObj = state.audioFiles.mainsound.find(f => f.name === data.main); const auxFileObj = state.audioFiles.plussound.find(f => f.name === data.aux); state.mainAudioIsGlobal = mainFileObj ? mainFileObj.is_global : false; state.auxAudioIsGlobal = auxFileObj ? auxFileObj.is_global : false; dom.mainTrackName.textContent = state.mainAudioFile || '无'; dom.auxTrackName.textContent = state.auxAudioFile || '无'; await renderSoundscapeList(); } catch (error) { console.error(`Failed to update soundscape to ${name}`, error); await renderSoundscapeList(); } }
     function resetAll() { state.isRunning = false; state.isPaused = false; state.currentPhase = 'idle'; if (state.animationFrameId) cancelAnimationFrame(state.animationFrameId); stopRunTimer(); state.totalRunTime = 0; dom.mainAudio.pause(); dom.auxAudio.pause(); dom.mainAudio.src = ''; dom.auxAudio.src = ''; if (audioCtx) { mainGainNode.gain.setValueAtTime(0, audioCtx.currentTime); auxGainNode.gain.setValueAtTime(0, audioCtx.currentTime); } dom.lightBg.style.transition = 'background-color 0.5s'; dom.lightBg.style.backgroundColor = '#000'; dom.guideText.style.opacity = 0; dom.statusDashboard.classList.add('hidden'); dom.startStopBtn.textContent = '开始'; dom.startStopBtn.className = ''; }
     
     function setupAppEventListeners() {
@@ -174,14 +155,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.startTime = performance.now(); lastFrameTime = 0;
                 dom.lightBg.style.transition = 'none';
                 
-                const loadAndPlayAudio = (audioElement, file, isGlobal, type, owner) => {
+                const loadAndPlayAudio = (audioElement, file, isGlobal, type) => {
                     if (file) {
                         let path;
                         if (isGlobal) {
                             path = `${CDN_BASE_URL}/static/${type}/${encodeURIComponent(file)}`;
                         } else {
-                            const user = owner || state.username;
-                            path = `/media/${user}/${type}/${encodeURIComponent(file)}`;
+                            path = `/media/shared/${type}/${encodeURIComponent(file)}`;
                         }
                         console.log(`Loading audio from: ${path}`);
                         audioElement.src = path;
@@ -189,8 +169,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         audioElement.play().catch(e => console.error(`Audio play failed for ${path}:`, e));
                     }
                 };
-                loadAndPlayAudio(dom.mainAudio, state.mainAudioFile, state.mainAudioIsGlobal, 'mainsound', state.mainAudioOwner);
-                if (dom.auxEnable.checked) { loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, state.auxAudioIsGlobal, 'plussound', state.auxAudioOwner); }
+                loadAndPlayAudio(dom.mainAudio, state.mainAudioFile, state.mainAudioIsGlobal, 'mainsound');
+                if (dom.auxEnable.checked) { loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, state.auxAudioIsGlobal, 'plussound'); }
                 startRunTimer();
                 state.animationFrameId = requestAnimationFrame(mainLoop);
                 dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';

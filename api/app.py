@@ -12,22 +12,29 @@ from flask_migrate import Migrate
 from flask_login import login_required, current_user
 import getpass
 
-# --- Path Definitions ---
+# --- Path Definitions (MODIFIED FOR SHARED MODEL) ---
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 ON_RENDER = os.environ.get('ON_RENDER')
 INSTANCE_FOLDER = '/var/data/instance' if ON_RENDER else os.path.join(APP_ROOT, '..', 'instance')
 PUBLIC_FOLDER = os.path.join(APP_ROOT, '..', 'public')
 GLOBAL_STATIC_FOLDER = os.path.join(PUBLIC_FOLDER, 'static')
-USER_DATA_ROOT = os.path.join(INSTANCE_FOLDER, 'user_data')
+# NEW: All user files go into a single shared directory
+SHARED_USER_DATA_ROOT = os.path.join(INSTANCE_FOLDER, 'user_data', 'shared')
+# We still need a user-specific folder for their configs
+USER_CONFIG_ROOT = os.path.join(INSTANCE_FOLDER, 'user_data')
 
-# --- Helper Functions ---
-def get_user_path(subfolder, username=None):
-    user = username if username else (current_user.username if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated else None)
-    if user:
-        path = os.path.join(USER_DATA_ROOT, user, subfolder)
+# --- Helper Functions (MODIFIED FOR SHARED MODEL) ---
+def get_user_config_path(subfolder):
+    if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated:
+        path = os.path.join(USER_CONFIG_ROOT, current_user.username, subfolder)
         os.makedirs(path, exist_ok=True)
         return path
     return None
+
+def get_shared_audio_path(subfolder):
+    path = os.path.join(SHARED_USER_DATA_ROOT, subfolder)
+    os.makedirs(path, exist_ok=True)
+    return path
 
 def get_global_path(subfolder):
     path = os.path.join(GLOBAL_STATIC_FOLDER, subfolder)
@@ -56,7 +63,7 @@ def create_app():
     
     try:
         os.makedirs(app.instance_path, exist_ok=True)
-        os.makedirs(USER_DATA_ROOT, exist_ok=True)
+        os.makedirs(SHARED_USER_DATA_ROOT, exist_ok=True)
     except OSError:
         pass
 
@@ -75,7 +82,7 @@ def create_app():
             for f in os.listdir(global_path):
                 if f.endswith('.json'):
                     results.append({'name': f.replace('.json', ''), 'is_global': True})
-        user_path = get_user_path(subfolder)
+        user_path = get_user_config_path(subfolder)
         if user_path and os.path.exists(user_path):
             user_files = {f.replace('.json', '') for f in os.listdir(user_path) if f.endswith('.json')}
             global_names = {item['name'] for item in results}
@@ -87,23 +94,19 @@ def create_app():
     def get_combined_audio_files(subfolder):
         audio_ext = ('.wav', '.mp3', '.ogg')
         results = []
-        # Add global files
         global_path = get_global_path(subfolder)
         if os.path.exists(global_path):
             for f in os.listdir(global_path):
                 if f.lower().endswith(audio_ext):
                     results.append({'name': f, 'is_global': True})
         
-        # Add user-specific files
-        users = [d for d in os.listdir(USER_DATA_ROOT) if os.path.isdir(os.path.join(USER_DATA_ROOT, d))]
-        for user in users:
-            user_path = os.path.join(USER_DATA_ROOT, user, subfolder)
-            if os.path.exists(user_path):
-                for f in os.listdir(user_path):
-                    if f.lower().endswith(audio_ext):
-                        # Ensure no duplicates if a user file has the same name as a global one
-                        if not any(r['name'] == f for r in results):
-                            results.append({'name': f, 'is_global': False, 'username': user})
+        shared_path = get_shared_audio_path(subfolder)
+        if os.path.exists(shared_path):
+            for f in os.listdir(shared_path):
+                if f.lower().endswith(audio_ext):
+                    if not any(r['name'] == f for r in results):
+                        results.append({'name': f, 'is_global': False})
+        
         return sorted(results, key=lambda x: x['name'])
 
     @app.route('/api/get-audio-files')
@@ -122,7 +125,7 @@ def create_app():
     @app.route('/api/soundsets/<name>', methods=['GET'])
     @login_required
     def get_soundset_by_name(name):
-        user_path = get_user_path('soundset'); file_path = os.path.join(user_path, f"{name}.json")
+        user_path = get_user_config_path('soundset'); file_path = os.path.join(user_path, f"{name}.json")
         if os.path.exists(file_path): return send_from_directory(user_path, f"{name}.json")
         global_path = get_global_path('soundset'); file_path_global = os.path.join(global_path, f"{name}.json")
         if os.path.exists(file_path_global): return send_from_directory(global_path, f"{name}.json")
@@ -131,7 +134,7 @@ def create_app():
     @app.route('/api/controlsets/<name>', methods=['GET'])
     @login_required
     def get_controlset_by_name(name):
-        user_path = get_user_path('controlset'); file_path = os.path.join(user_path, f"{name}.json")
+        user_path = get_user_config_path('controlset'); file_path = os.path.join(user_path, f"{name}.json")
         if os.path.exists(file_path): return send_from_directory(user_path, f"{name}.json")
         global_path = get_global_path('controlset'); file_path_global = os.path.join(global_path, f"{name}.json")
         if os.path.exists(file_path_global): return send_from_directory(global_path, f"{name}.json")
@@ -142,7 +145,7 @@ def create_app():
     def save_or_update_soundset():
         data = request.json; name = data.get('name')
         if not name: return jsonify({'error': 'Soundset name is required'}), 400
-        write_path = get_global_path('soundset') if current_user.is_admin else get_user_path('soundset')
+        write_path = get_global_path('soundset') if current_user.is_admin else get_user_config_path('soundset')
         file_path = os.path.join(write_path, f"{name}.json")
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -153,7 +156,7 @@ def create_app():
     def delete_soundset():
         name = request.json.get('name')
         if not name: return jsonify({'error': 'Name is required'}), 400
-        user_path = get_user_path('soundset'); user_file_path = os.path.join(user_path, f"{name}.json")
+        user_path = get_user_config_path('soundset'); user_file_path = os.path.join(user_path, f"{name}.json")
         if os.path.exists(user_file_path):
             os.remove(user_file_path)
             return jsonify({'message': f'User soundset {name} deleted successfully'})
@@ -169,7 +172,7 @@ def create_app():
     def save_controlset():
         data = request.json; name = data.get('name'); settings = data.get('settings')
         if not name or not settings: return jsonify({'error': 'Name and settings are required'}), 400
-        write_path = get_global_path('controlset') if current_user.is_admin else get_user_path('controlset')
+        write_path = get_global_path('controlset') if current_user.is_admin else get_user_config_path('controlset')
         file_path = os.path.join(write_path, f"{name}.json")
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(settings, f, ensure_ascii=False, indent=4)
@@ -180,7 +183,7 @@ def create_app():
     def delete_controlset():
         name = request.json.get('name')
         if not name: return jsonify({'error': 'Name is required'}), 400
-        user_path = get_user_path('controlset'); user_file_path = os.path.join(user_path, f"{name}.json")
+        user_path = get_user_config_path('controlset'); user_file_path = os.path.join(user_path, f"{name}.json")
         if os.path.exists(user_file_path):
             os.remove(user_file_path)
             return jsonify({'message': f'User controlset {name} deleted successfully'})
@@ -194,7 +197,7 @@ def create_app():
     @app.route('/api/controlsets/default', methods=['GET', 'POST'])
     @login_required
     def handle_default_controlset():
-        user_path = get_user_path('controlset')
+        user_path = get_user_config_path('controlset')
         if not user_path: return jsonify({'error': 'User context not found'}), 500
         default_file = os.path.join(user_path, 'default.txt')
         if request.method == 'GET':
@@ -209,7 +212,7 @@ def create_app():
             with open(default_file, 'w', encoding='utf-8') as f:
                 f.write(name)
             return jsonify({'message': f'Set {name} as default successfully'})
-        
+
     @app.route('/api/upload/<track_type>', methods=['POST'])
     @login_required
     def upload_audio(track_type):
@@ -219,69 +222,47 @@ def create_app():
         if file.filename == '': return jsonify({'error': '没有选择文件'}), 400
         if file:
             clean_filename = secure_filename_custom(file.filename)
-            upload_path = get_global_path(track_type) if current_user.is_admin else get_user_path(track_type)
-            if not current_user.is_admin:
-                if os.path.exists(os.path.join(get_global_path(track_type), clean_filename)):
-                    return jsonify({'error': '无法上传，全局目录中已存在同名文件'}), 409
+            if os.path.exists(os.path.join(get_global_path(track_type), clean_filename)):
+                return jsonify({'error': '无法上传，已存在同名的受保护文件'}), 409
+            upload_path = get_shared_audio_path(track_type)
             file.save(os.path.join(upload_path, clean_filename))
             return jsonify({'message': '文件上传成功', 'filename': clean_filename})
         return jsonify({'error': '文件上传失败'}), 500
 
-    @app.route('/api/delete-audio/<track_type>/<username>/<filename>', methods=['DELETE'])
+    @app.route('/api/delete-audio/<track_type>/<filename>', methods=['DELETE'])
     @login_required
-    def delete_audio(track_type, username, filename):
-        if not current_user.is_admin and current_user.username != username:
-            abort(403)
-        if track_type not in ['mainsound', 'plussound']: abort(404)
-
+    def delete_audio(track_type, filename):
         safe_filename = secure_filename_custom(filename)
-        path_to_check = get_user_path(track_type, username=username)
-        file_to_delete = os.path.join(path_to_check, safe_filename)
-        
-        if os.path.exists(file_to_delete):
-            os.remove(file_to_delete)
-            return jsonify({'message': f'文件 {safe_filename} 删除成功'})
-        
-        # Admin can delete global files too, check if filename implies global
-        if current_user.is_admin:
-            global_file_path = os.path.join(get_global_path(track_type), safe_filename)
-            if os.path.exists(global_file_path):
+        global_file_path = os.path.join(get_global_path(track_type), safe_filename)
+        if os.path.exists(global_file_path):
+            if current_user.is_admin:
                 os.remove(global_file_path)
-                return jsonify({'message': f'全局文件 {safe_filename} 删除成功'})
+                return jsonify({'message': f'受保护的文件 {safe_filename} 已被管理员删除'})
+            else:
+                return jsonify({'error': '无权删除受保护的文件'}), 403
+        shared_file_path = os.path.join(get_shared_audio_path(track_type), safe_filename)
+        if os.path.exists(shared_file_path):
+            os.remove(shared_file_path)
+            return jsonify({'message': f'共享文件 {safe_filename} 已被删除'})
+        return jsonify({'error': '文件未找到'}), 404
 
-        return jsonify({'error': 'File not found or permission denied'}), 404
-
-    @app.route('/api/audio/protect/<track_type>/<username>/<filename>', methods=['POST'])
+    @app.route('/api/audio/protect/<track_type>/<filename>', methods=['POST'])
     @login_required
-    def protect_audio(track_type, username, filename):
+    def protect_audio(track_type, filename):
         if not current_user.is_admin: abort(403)
         safe_filename = secure_filename_custom(filename)
-        source_path = os.path.join(USER_DATA_ROOT, username, track_type, safe_filename)
+        source_path = os.path.join(get_shared_audio_path(track_type), safe_filename)
         destination_path = os.path.join(get_global_path(track_type), safe_filename)
         if os.path.exists(source_path):
             shutil.move(source_path, destination_path)
-            return jsonify({'message': f'文件 {safe_filename} 已被保护为全局文件。'})
-        return jsonify({'error': '源文件未找到'}), 404
+            return jsonify({'message': f'文件 {safe_filename} 已被保护。'})
+        return jsonify({'error': '共享文件未找到'}), 404
 
-    @app.route('/api/audio/unprotect/<track_type>/<filename>', methods=['POST'])
-    @login_required
-    def unprotect_audio(track_type, filename):
-        if not current_user.is_admin: abort(403)
-        safe_filename = secure_filename_custom(filename)
-        source_path = os.path.join(get_global_path(track_type), safe_filename)
-        destination_path = os.path.join(get_user_path(track_type), safe_filename)
-        if os.path.exists(source_path):
-            shutil.move(source_path, destination_path)
-            return jsonify({'message': f'文件 {safe_filename} 已取消保护并移入您的个人文件夹。'})
-        return jsonify({'error': '源文件未找到'}), 404
-
-    @app.route('/media/<username>/<track_type>/<path:filename>')
-    @login_required
-    def serve_user_file(username, track_type, filename):
-        if not current_user.is_admin and current_user.username != username: abort(403)
+    @app.route('/media/shared/<track_type>/<path:filename>')
+    def serve_shared_file(track_type, filename):
         if track_type not in ['mainsound', 'plussound']: abort(404)
-        user_specific_path = get_user_path(track_type, username=username)
-        return send_from_directory(user_specific_path, filename)
+        shared_path = get_shared_audio_path(track_type)
+        return send_from_directory(shared_path, filename)
 
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
