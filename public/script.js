@@ -100,7 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 let actionButtons = '';
                 
-                // 规则 1: 如果文件不是全局（受保护）的，任何登录用户都能看到删除按钮
+                // 规则 1: 任何登录用户都能删除未受保护的文件
                 if (!file.is_global) {
                     actionButtons += `<button class="delete-btn" title="删除">✕</button>`;
                 }
@@ -110,6 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (file.is_global) {
                         // 管理员也能删除受保护的文件
                         actionButtons += `<button class="delete-btn" title="删除受保护文件">✕</button>`;
+                        // KEY CHANGE: Add unprotect button for global files
+                        actionButtons += `<button class="unprotect-btn" title="取消保护 (移回共享库)">🔓</button>`;
                     } else {
                         // 管理员能在共享文件旁看到“保护”按钮
                         actionButtons += `<button class="protect-btn" title="保护 (设为全局)">🔒</button>`;
@@ -117,13 +119,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 li.innerHTML = `<span class="preset-name">${file.name}</span><div class="preset-actions">${actionButtons}</div>`;
                 
+                // --- Event Listeners ---
                 const deleteBtn = li.querySelector('.delete-btn');
                 if (deleteBtn) {
                     deleteBtn.addEventListener('click', async () => {
                         if (confirm(`确定删除音频 "${file.name}"?\n这个操作无法撤销。`)) {
                             try {
                                 await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE');
-                                await renderAudioLists(); // 刷新列表
+                                await renderAudioLists();
                             } catch (err) { alert(`删除失败: ${err.message}`); }
                         }
                     });
@@ -134,17 +137,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     protectBtn.addEventListener('click', async () => {
                         try {
                             await apiCall(`/api/audio/protect/${trackType}/${file.name}`, 'POST');
-                            await renderAudioLists(); // 刷新列表
+                            await renderAudioLists();
                         } catch (err) { alert(`操作失败: ${err.message}`); }
                     });
                 }
+
+                // KEY CHANGE: Add event listener for the new unprotect button
+                const unprotectBtn = li.querySelector('.unprotect-btn');
+                if (unprotectBtn) {
+                    unprotectBtn.addEventListener('click', async () => {
+                        try {
+                            await apiCall(`/api/audio/unprotect/${trackType}/${file.name}`, 'POST');
+                            await renderAudioLists();
+                        } catch (err) { alert(`操作失败: ${err.message}`); }
+                    });
+                }
+
                 listElement.appendChild(li);
             });
         };
         populateList(dom.mainAudioList, state.audioFiles.mainsound, 'mainsound');
         populateList(dom.auxAudioList, state.audioFiles.plussound, 'plussound');
 
-        // 更新下拉选择框的逻辑保持不变
         const populateSelect = (sel, files, empty = false) => {
             sel.innerHTML = empty ? '<option value="">无</option>' : '';
             if (!files) return;
