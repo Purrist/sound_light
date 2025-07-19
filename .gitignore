@@ -15,7 +15,7 @@ venv/
 
 # Instance folder containing local database and user data
 /instance/
-
+/public/static/
 # OS-specific files
 .DS_Store
 Thumbs.db
