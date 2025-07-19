@@ -97,35 +97,44 @@ document.addEventListener('DOMContentLoaded', () => {
             files.forEach(file => {
                 const li = document.createElement('li');
                 li.className = file.is_global ? 'is-global' : 'is-user';
+                
                 let actionButtons = '';
+                
+                // 规则 1: 如果文件不是全局（受保护）的，任何登录用户都能看到删除按钮
                 if (!file.is_global) {
                     actionButtons += `<button class="delete-btn" title="删除">✕</button>`;
                 }
+                
+                // 规则 2: 只有管理员能看到额外的管理按钮
                 if (state.isAdmin) {
                     if (file.is_global) {
+                        // 管理员也能删除受保护的文件
                         actionButtons += `<button class="delete-btn" title="删除受保护文件">✕</button>`;
                     } else {
+                        // 管理员能在共享文件旁看到“保护”按钮
                         actionButtons += `<button class="protect-btn" title="保护 (设为全局)">🔒</button>`;
                     }
                 }
                 li.innerHTML = `<span class="preset-name">${file.name}</span><div class="preset-actions">${actionButtons}</div>`;
+                
                 const deleteBtn = li.querySelector('.delete-btn');
                 if (deleteBtn) {
                     deleteBtn.addEventListener('click', async () => {
-                        if (confirm(`确定删除音频 "${file.name}"?`)) {
+                        if (confirm(`确定删除音频 "${file.name}"?\n这个操作无法撤销。`)) {
                             try {
                                 await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE');
-                                await renderAudioLists();
+                                await renderAudioLists(); // 刷新列表
                             } catch (err) { alert(`删除失败: ${err.message}`); }
                         }
                     });
                 }
+                
                 const protectBtn = li.querySelector('.protect-btn');
                 if (protectBtn) {
                     protectBtn.addEventListener('click', async () => {
                         try {
                             await apiCall(`/api/audio/protect/${trackType}/${file.name}`, 'POST');
-                            await renderAudioLists();
+                            await renderAudioLists(); // 刷新列表
                         } catch (err) { alert(`操作失败: ${err.message}`); }
                     });
                 }
@@ -134,12 +143,47 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         populateList(dom.mainAudioList, state.audioFiles.mainsound, 'mainsound');
         populateList(dom.auxAudioList, state.audioFiles.plussound, 'plussound');
-        const populateSelect = (sel, files, empty = false) => { sel.innerHTML = empty ? '<option value="">无</option>' : ''; if (!files) return; files.forEach(f => sel.innerHTML += `<option value="${f.name}">${f.name}</option>`); };
+
+        // 更新下拉选择框的逻辑保持不变
+        const populateSelect = (sel, files, empty = false) => {
+            sel.innerHTML = empty ? '<option value="">无</option>' : '';
+            if (!files) return;
+            files.forEach(f => sel.innerHTML += `<option value="${f.name}">${f.name}</option>`);
+        };
         populateSelect(dom.mainTrackSelect, state.audioFiles.mainsound);
         populateSelect(dom.auxTrackSelect, state.audioFiles.plussound, true);
     }
     
-    async function updateCurrentSoundscape(name) { if (!name) { state.mainAudioFile = null; state.auxAudioFile = null; dom.mainTrackName.textContent = '无'; dom.auxTrackName.textContent = '无'; return; } try { const data = await apiCall(`/api/soundsets/${name}`); state.mainAudioFile = data.main || null; state.auxAudioFile = data.aux || null; const mainFileObj = state.audioFiles.mainsound.find(f => f.name === data.main); const auxFileObj = state.audioFiles.plussound.find(f => f.name === data.aux); state.mainAudioIsGlobal = mainFileObj ? mainFileObj.is_global : false; state.auxAudioIsGlobal = auxFileObj ? auxFileObj.is_global : false; dom.mainTrackName.textContent = state.mainAudioFile || '无'; dom.auxTrackName.textContent = state.auxAudioFile || '无'; await renderSoundscapeList(); } catch (error) { console.error(`Failed to update soundscape to ${name}`, error); await renderSoundscapeList(); } }
+    async function updateCurrentSoundscape(name) {
+        if (!name) {
+            state.mainAudioFile = null;
+            state.auxAudioFile = null;
+            dom.mainTrackName.textContent = '无';
+            dom.auxTrackName.textContent = '无';
+            return;
+        }
+        try {
+            const data = await apiCall(`/api/soundsets/${name}`);
+            state.mainAudioFile = data.main || null;
+            state.auxAudioFile = data.aux || null;
+
+            // 在完整的音频列表中查找文件对象，以获取其 is_global 状态
+            const mainFileObj = state.audioFiles.mainsound.find(f => f.name === data.main);
+            const auxFileObj = state.audioFiles.plussound.find(f => f.name === data.aux);
+
+            // 如果找到了文件对象，就用它的 is_global 状态，否则默认为 false
+            state.mainAudioIsGlobal = mainFileObj ? mainFileObj.is_global : false;
+            state.auxAudioIsGlobal = auxFileObj ? auxFileObj.is_global : false;
+
+            dom.mainTrackName.textContent = state.mainAudioFile || '无';
+            dom.auxTrackName.textContent = state.auxAudioFile || '无';
+            await renderSoundscapeList(); // 刷新声景列表以正确禁用删除按钮
+        } catch (error) {
+            console.error(`Failed to update soundscape to ${name}`, error);
+            await renderSoundscapeList();
+        }
+    }
+
     function resetAll() { state.isRunning = false; state.isPaused = false; state.currentPhase = 'idle'; if (state.animationFrameId) cancelAnimationFrame(state.animationFrameId); stopRunTimer(); state.totalRunTime = 0; dom.mainAudio.pause(); dom.auxAudio.pause(); dom.mainAudio.src = ''; dom.auxAudio.src = ''; if (audioCtx) { mainGainNode.gain.setValueAtTime(0, audioCtx.currentTime); auxGainNode.gain.setValueAtTime(0, audioCtx.currentTime); } dom.lightBg.style.transition = 'background-color 0.5s'; dom.lightBg.style.backgroundColor = '#000'; dom.guideText.style.opacity = 0; dom.statusDashboard.classList.add('hidden'); dom.startStopBtn.textContent = '开始'; dom.startStopBtn.className = ''; }
     
     function setupAppEventListeners() {
@@ -150,17 +194,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
         dom.startStopBtn.addEventListener('click', () => {
             if (!state.isRunning) {
-                setupAudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume();
-                state.isRunning = true; state.isPaused = false; state.currentPhase = 'fadeIn';
-                state.startTime = performance.now(); lastFrameTime = 0;
+                setupAudioContext();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                state.isRunning = true;
+                state.isPaused = false;
+                state.currentPhase = 'fadeIn';
+                state.startTime = performance.now();
+                lastFrameTime = 0;
                 dom.lightBg.style.transition = 'none';
                 
                 const loadAndPlayAudio = (audioElement, file, isGlobal, type) => {
                     if (file) {
                         let path;
                         if (isGlobal) {
+                            // 受保护的全局文件从 CDN 加载以获得最佳性能
                             path = `${CDN_BASE_URL}/static/${type}/${encodeURIComponent(file)}`;
                         } else {
+                            // 社区共享的文件从我们新的 /media/shared/ 路由加载
                             path = `/media/shared/${type}/${encodeURIComponent(file)}`;
                         }
                         console.log(`Loading audio from: ${path}`);
@@ -169,23 +219,36 @@ document.addEventListener('DOMContentLoaded', () => {
                         audioElement.play().catch(e => console.error(`Audio play failed for ${path}:`, e));
                     }
                 };
+
                 loadAndPlayAudio(dom.mainAudio, state.mainAudioFile, state.mainAudioIsGlobal, 'mainsound');
-                if (dom.auxEnable.checked) { loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, state.auxAudioIsGlobal, 'plussound'); }
+                if (dom.auxEnable.checked) {
+                    loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, state.auxAudioIsGlobal, 'plussound');
+                }
+
                 startRunTimer();
                 state.animationFrameId = requestAnimationFrame(mainLoop);
-                dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
+                dom.startStopBtn.textContent = '暂停';
+                dom.startStopBtn.className = 'running';
             } else if (state.isPaused) {
-                state.isPaused = false; if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-                dom.mainAudio.play().catch(e => {}); dom.auxAudio.play().catch(e => {});
-                lastFrameTime = performance.now(); state.animationFrameId = requestAnimationFrame(mainLoop);
-                dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
+                state.isPaused = false;
+                if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                dom.mainAudio.play().catch(e => {});
+                dom.auxAudio.play().catch(e => {});
+                lastFrameTime = performance.now();
+                state.animationFrameId = requestAnimationFrame(mainLoop);
+                dom.startStopBtn.textContent = '暂停';
+                dom.startStopBtn.className = 'running';
             } else {
-                state.isPaused = true; if(audioCtx) audioCtx.suspend();
-                dom.mainAudio.pause(); dom.auxAudio.pause();
+                state.isPaused = true;
+                if(audioCtx) audioCtx.suspend();
+                dom.mainAudio.pause();
+                dom.auxAudio.pause();
                 cancelAnimationFrame(state.animationFrameId);
-                dom.startStopBtn.textContent = '继续'; dom.startStopBtn.className = 'paused';
+                dom.startStopBtn.textContent = '继续';
+                dom.startStopBtn.className = 'paused';
             }
         });
+
         dom.resetBtn.addEventListener('click', () => { if(state.isRunning && !confirm("确定停止并重启?")) return; resetAll(); });
         dom.toggleConsoleBtn.addEventListener('click', () => dom.consoleWrapper.classList.toggle('collapsed'));
         dom.togglePresetsBtn.addEventListener('click', () => dom.presetsWrapper.classList.toggle('collapsed'));
