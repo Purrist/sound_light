@@ -51,11 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let audioCtx, mainGainNode, auxGainNode, pannerNode, mainSource, auxSource;
     let kelvinLookupTable = [];
     const masterRange = { start: { k: 2000, hex: '#f57e0f' }, end: { k: 8000, hex: '#8cb1ff' } };
-    const GITHUB_USER = 'purrist';
-    const GITHUB_REPO = 'sound_light';
-    const GITHUB_BRANCH = 'web';
-    const CDN_BASE_URL = `https://cdn.jsdelivr.net/gh/${GITHUB_USER}/${GITHUB_REPO}@${GITHUB_BRANCH}/public`;
-
+    
     async function apiCall(url, method = 'GET', body = null) { try { const options = { method, headers: {} }; if (body) { options.body = JSON.stringify(body); options.headers['Content-Type'] = 'application/json'; } const response = await fetch(url, options); const responseData = await response.json().catch(() => null); if (!response.ok) { const errorMessage = responseData?.error || `HTTP error! status: ${response.status}`; throw new Error(errorMessage); } return responseData; } catch (error) { console.error('API Call Failed:', url, error); throw error; } }
     
     function setupAuthEventListeners() { dom.showRegister.addEventListener('click', (e) => { e.preventDefault(); dom.loginForm.classList.add('hidden'); dom.registerForm.classList.remove('hidden'); dom.loginError.textContent = ''; dom.registerError.textContent = ''; }); dom.showLogin.addEventListener('click', (e) => { e.preventDefault(); dom.registerForm.classList.add('hidden'); dom.loginForm.classList.remove('hidden'); dom.loginError.textContent = ''; dom.registerError.textContent = ''; }); dom.loginForm.addEventListener('submit', async (e) => { e.preventDefault(); const u = document.getElementById('login-username').value; const p = document.getElementById('login-password').value; try { const d = await apiCall('/auth/login', 'POST', { username: u, password: p }); dom.loginError.textContent = ''; await handleSuccessfulLogin(d.username, d.is_admin); } catch (err) { dom.loginError.textContent = err.message; } }); dom.registerForm.addEventListener('submit', async (e) => { e.preventDefault(); const u = document.getElementById('register-username').value; const p = document.getElementById('register-password').value; try { await apiCall('/auth/register', 'POST', { username: u, password: p }); dom.registerError.textContent = ''; alert('注册成功！请登录。'); document.getElementById('login-username').value = u; document.getElementById('login-password').value = ''; dom.showLogin.click(); } catch (err) { dom.registerError.textContent = err.message; } }); dom.logoutBtn.addEventListener('click', async () => { try { await apiCall('/auth/logout', 'POST'); } catch (err) { console.error("Logout failed but proceeding:", err); } window.location.reload(); }); }
@@ -185,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const mainFileObj = state.audioFiles.mainsound.find(f => f.name === data.main);
             const auxFileObj = state.audioFiles.plussound.find(f => f.name === data.aux);
 
-            // 关键修复：直接使用从 API 获取的 is_global 状态
+            // 这个状态现在是决定 URL 的唯一依据
             state.mainAudioIsGlobal = mainFileObj ? mainFileObj.is_global : false;
             state.auxAudioIsGlobal = auxFileObj ? auxFileObj.is_global : false;
 
@@ -197,6 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await renderSoundscapeList();
         }
     }
+
     function resetAll() { state.isRunning = false; state.isPaused = false; state.currentPhase = 'idle'; if (state.animationFrameId) cancelAnimationFrame(state.animationFrameId); stopRunTimer(); state.totalRunTime = 0; dom.mainAudio.pause(); dom.auxAudio.pause(); dom.mainAudio.src = ''; dom.auxAudio.src = ''; if (audioCtx) { mainGainNode.gain.setValueAtTime(0, audioCtx.currentTime); auxGainNode.gain.setValueAtTime(0, audioCtx.currentTime); } dom.lightBg.style.transition = 'background-color 0.5s'; dom.lightBg.style.backgroundColor = '#000'; dom.guideText.style.opacity = 0; dom.statusDashboard.classList.add('hidden'); dom.startStopBtn.textContent = '开始'; dom.startStopBtn.className = ''; }
     
     function setupAppEventListeners() {
@@ -219,12 +216,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const loadAndPlayAudio = (audioElement, file, isGlobal, type) => {
                     if (file) {
                         let path;
-                        // 关键修复：isGlobal 状态现在是可靠的
+                        // 逻辑变得非常简单和清晰
                         if (isGlobal) {
-                            // 受保护的全局文件从 CDN 加载
-                            path = `${CDN_BASE_URL}/static/${type}/${encodeURIComponent(file)}`;
+                            // 全局文件从我们新的 /static-media/ 路由加载
+                            path = `/static-media/${type}/${encodeURIComponent(file)}`;
                         } else {
-                            // 社区共享的文件从我们自己的 /media/shared/ 路由加载
+                            // 社区共享文件从 /media/shared/ 路由加载
                             path = `/media/shared/${type}/${encodeURIComponent(file)}`;
                         }
                         console.log(`Loading audio from: ${path}`);
@@ -262,6 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 dom.startStopBtn.className = 'paused';
             }
         });
+
 
         dom.resetBtn.addEventListener('click', () => { if(state.isRunning && !confirm("确定停止并重启?")) return; resetAll(); });
         dom.toggleConsoleBtn.addEventListener('click', () => dom.consoleWrapper.classList.toggle('collapsed'));

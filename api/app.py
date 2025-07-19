@@ -274,6 +274,17 @@ def create_app():
             return jsonify({'message': f'文件 {safe_filename} 已取消保护并移回共享库。'})
         return jsonify({'error': '受保护的文件未找到'}), 404
 
+    @app.route('/static-media/<track_type>/<path:filename>')
+    def serve_global_file(track_type, filename):
+        """
+        Serves the protected/global static files from the /public/static directory.
+        """
+        if track_type not in ['mainsound', 'plussound']:
+            abort(404)
+        
+        global_path = get_global_path(track_type)
+        return send_from_directory(global_path, filename)
+
     # --- File Serving Routes ---
     @app.route('/media/shared/<track_type>/<path:filename>')
     def serve_shared_file(track_type, filename):
