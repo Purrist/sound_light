@@ -10,6 +10,7 @@ from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_login import login_required, current_user
 import getpass
+from urllib.parse import unquote
 
 # --- Path Definitions ---
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -272,15 +273,23 @@ def create_app():
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
+        # 优先服务 /public 目录下的静态文件，如 style.css, script.js
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
+
         if hasattr(g, 'user') and g.user.is_authenticated and path.startswith('static/user/'):
             parts = path.split('/')
             if len(parts) == 4:
-                _, _, track_type, filename = parts
+                _, _, track_type, raw_filename = parts
+                
+                # KEY CHANGE: Decode the filename from URL encoding back to Unicode
+                filename = unquote(raw_filename)
+                
                 user_folder_path = get_user_path(track_type)
+                
                 if user_folder_path and os.path.exists(os.path.join(user_folder_path, filename)):
                     return send_from_directory(user_folder_path, filename)
+        
         return send_from_directory(app.static_folder, 'index.html')
             
     @app.cli.command("set-admin")
