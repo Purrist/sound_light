@@ -2,7 +2,7 @@ import os
 import json
 import re
 from flask import Flask, jsonify, send_from_directory, request, g
-from urllib.parse import quote, unquote
+from urllib.parse import unquote
 from .extensions import db, login_manager
 from .models import User
 from .auth import auth as auth_blueprint
@@ -93,19 +93,11 @@ def create_app():
         global_path = get_global_path(subfolder)
         if os.path.exists(global_path):
             for f in os.listdir(global_path):
-                # On server, filenames are URL-encoded, so we decode them for display
-                decoded_f = unquote(f)
-                if decoded_f.lower().endswith(audio_ext):
-                    results.append({'name': decoded_f, 'is_global': True})
-        
+                if f.lower().endswith(audio_ext):
+                    results.append({'name': f, 'is_global': True})
         user_path = get_user_path(subfolder)
         if user_path and os.path.exists(user_path):
-            user_files = set()
-            for f in os.listdir(user_path):
-                decoded_f = unquote(f)
-                if decoded_f.lower().endswith(audio_ext):
-                    user_files.add(decoded_f)
-            
+            user_files = {f for f in os.listdir(user_path) if f.lower().endswith(audio_ext)}
             global_names = {item['name'] for item in results}
             for name in user_files:
                 if name not in global_names:
@@ -225,12 +217,11 @@ def create_app():
         if file.filename == '': return jsonify({'error': '没有选择文件'}), 400
         if file:
             clean_filename = secure_filename_custom(file.filename)
-            encoded_filename = quote(clean_filename)
             upload_path = get_global_path(track_type) if current_user.is_admin else get_user_path(track_type)
             if not current_user.is_admin:
-                if os.path.exists(os.path.join(get_global_path(track_type), encoded_filename)):
+                if os.path.exists(os.path.join(get_global_path(track_type), clean_filename)):
                     return jsonify({'error': '无法上传，全局目录中已存在同名文件'}), 409
-            file.save(os.path.join(upload_path, encoded_filename))
+            file.save(os.path.join(upload_path, clean_filename))
             return jsonify({'message': '文件上传成功', 'filename': clean_filename})
         return jsonify({'error': '文件上传失败'}), 500
 
@@ -238,14 +229,12 @@ def create_app():
     @login_required
     def delete_audio(track_type, filename):
         if track_type not in ['mainsound', 'plussound']: return jsonify({'error': '无效的音轨类型'}), 400
-        encoded_filename = quote(secure_filename_custom(filename))
+        safe_filename = secure_filename_custom(filename)
         path_to_check = get_global_path(track_type) if current_user.is_admin else get_user_path(track_type)
-        file_to_delete = os.path.join(path_to_check, encoded_filename)
+        file_to_delete = os.path.join(path_to_check, safe_filename)
         if os.path.exists(file_to_delete):
             os.remove(file_to_delete)
-            return jsonify({'message': f'文件 {filename} 删除成功'})
-        if not current_user.is_admin and os.path.exists(os.path.join(get_global_path(track_type), encoded_filename)):
-             return jsonify({'error': 'Permission denied to delete global file'}), 403
+            return jsonify({'message': f'文件 {safe_filename} 删除成功'})
         return jsonify({'error': 'File not found or permission denied'}), 404
 
     @app.route('/', defaults={'path': ''})
@@ -255,13 +244,18 @@ def create_app():
             return send_from_directory(app.static_folder, path)
 
         if hasattr(g, 'user') and g.user.is_authenticated and path.startswith('static/user/'):
-            parts = path.split('/')
+            try:
+                decoded_path = unquote(path, encoding='utf-8')
+            except Exception:
+                decoded_path = path
+
+            parts = decoded_path.split('/')
             if len(parts) == 4:
-                _, _, track_type, raw_filename = parts
+                _, _, track_type, filename = parts
                 user_folder_path = get_user_path(track_type)
-                final_file_path = os.path.join(user_folder_path, raw_filename)
+                final_file_path = os.path.join(user_folder_path, filename)
                 if user_folder_path and os.path.exists(final_file_path):
-                    return send_from_directory(user_folder_path, raw_filename)
+                    return send_from_directory(user_folder_path, filename)
         
         return send_from_directory(app.static_folder, 'index.html')
             
