@@ -1,10 +1,12 @@
+# Core Flask Application
 Flask
 Flask-SQLAlchemy
 Flask-Login
 Flask-Migrate
 Flask-Cors
 Werkzeug
-gunicorn
-gevent
-psycopg2-binary
-SQLAlchemy[postgresql_psycopg2]
+
+# Phase 2: Audio Generation
+pydub
+numpy
+scipy

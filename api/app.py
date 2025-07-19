@@ -4,6 +4,7 @@ import os
 import json
 import re
 import shutil
+from .generator import generate_pink_noise, process_and_save_track
 from flask import Flask, jsonify, send_from_directory, request, g, abort
 from urllib.parse import unquote
 from .extensions import db, login_manager
@@ -284,6 +285,42 @@ def create_app():
         
         global_path = get_global_path(track_type)
         return send_from_directory(global_path, filename)
+
+    @app.route('/api/generate/main-noise', methods=['POST'])
+    @login_required
+    def generate_main_noise_route():
+        """
+        API endpoint to generate a main noise track.
+        """
+        try:
+            params = request.get_json()
+            if not params:
+                params = {} # Use defaults if no params are sent
+
+            # 1. Generate the raw noise data
+            duration_ms = params.get('duration_ms', 30000) # Default to 30 seconds
+            noise_segment = generate_pink_noise(duration_ms=duration_ms)
+            
+            # 2. Process (volume, fades) and save the track
+            # Generated tracks are always saved to the shared folder first
+            temp_filename = process_and_save_track(
+                noise_segment, 
+                'mainsound', 
+                get_shared_audio_path, 
+                params
+            )
+            
+            # 3. Return the temporary filename to the frontend
+            return jsonify({
+                "success": True,
+                "filename": temp_filename,
+                "message": "主轨噪音已成功生成"
+            })
+            
+        except Exception as e:
+            # Log the full error to the server console for debugging
+            app.logger.error(f"Error in generate_main_noise_route: {e}", exc_info=True)
+            return jsonify({"success": False, "error": "生成音频时发生内部错误"}), 500
 
     # --- File Serving Routes ---
     @app.route('/media/shared/<track_type>/<path:filename>')
