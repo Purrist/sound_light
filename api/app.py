@@ -316,18 +316,33 @@ def create_app():
         return jsonify({'error': 'File not found or permission denied'}), 404
 
     # --- Serve Frontend and CLI (Unchanged) ---
+    # 位于 api/app.py 文件底部
+
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
+        # 优先服务 /public 目录下的静态文件，如 style.css, script.js
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
+
+        # 关键修复：这是处理用户上传文件的核心逻辑
         if hasattr(g, 'user') and g.user.is_authenticated and path.startswith('static/user/'):
-            parts = path.split('/');
+            # URL 路径格式: static/user/mainsound/some-file.mp3
+            parts = path.split('/')
             if len(parts) == 4:
+                # parts -> ['static', 'user', 'mainsound', 'some-file.mp3']
                 _, _, track_type, filename = parts
-                user_audio_path = get_user_path(track_type)
-                if os.path.exists(os.path.join(user_audio_path, filename)):
-                    return send_from_directory(user_audio_path, filename)
+                
+                # 使用 get_user_path 来获取包含用户名的正确基础路径
+                # 它会返回像 /home/.../instance/user_data/purr/mainsound 这样的路径
+                user_folder_path = get_user_path(track_type)
+                
+                if user_folder_path and os.path.exists(os.path.join(user_folder_path, filename)):
+                    # 从用户的专属文件夹中安全地发送文件
+                    return send_from_directory(user_folder_path, filename)
+        
+        # 对于所有其他未匹配的路径，返回主页 index.html
+        # 这对于单页面应用(SPA)的客户端路由至关重要
         return send_from_directory(app.static_folder, 'index.html')
 
     @app.cli.command("set-admin")
