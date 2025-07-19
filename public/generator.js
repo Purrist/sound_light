@@ -92,22 +92,15 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.generateMainBtn.textContent = '生成中...';
         dom.generateMainBtn.disabled = true;
         resetPreview();
-        try {
-            const params = {
-                duration_s: parseInt(dom.noiseDuration.value),
-                tone_cutoff_hz: parseInt(dom.toneSlider.value),
-                stereo_width: parseFloat(dom.widthSlider.value),
-                volume_db: -6,
-                fade_in_ms: 1000,
-                fade_out_ms: 2000
-            };
+    try {
             const result = await apiCall('/api/generate/main-noise', 'POST', params);
             state.tempFilename = result.filename;
             state.trackType = 'mainsound';
+            
+            // KEY CHANGE: Use the unified /media/ route for previews too
             dom.previewAudio.src = `/media/mainsound/${encodeURIComponent(result.filename)}`;
+            
             dom.previewToggleBtn.disabled = false;
-            dom.saveTrackBtn.disabled = false;
-            dom.previewFilenameDisplay.textContent = `预览: ${result.filename}`;
         } catch (error) {
             dom.previewFilenameDisplay.textContent = '生成失败!';
         } finally {

@@ -177,12 +177,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const loadAndPlayAudio = (audioElement, fileObj, type) => {
                     if (fileObj && fileObj.name) {
-                        let path;
-                        if (fileObj.is_global) {
-                            path = `/static-media/${type}/${encodeURIComponent(fileObj.name)}`;
-                        } else {
-                            path = `/media/shared/${type}/${encodeURIComponent(fileObj.name)}`;
-                        }
+                        // The URL is ALWAYS the same simple structure.
+                        const path = `/media/${type}/${encodeURIComponent(fileObj.name)}`;
                         console.log(`Loading audio from: ${path}`);
                         audioElement.src = path;
                         audioElement.load();
@@ -190,7 +186,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 };
                 loadAndPlayAudio(dom.mainAudio, state.mainAudioFile, 'mainsound');
-                if (dom.auxEnable.checked) { loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, 'plussound'); }
+                if (dom.auxEnable.checked) {
+                    loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, 'plussound');
+                }
                 startRunTimer();
                 state.animationFrameId = requestAnimationFrame(mainLoop);
                 dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
