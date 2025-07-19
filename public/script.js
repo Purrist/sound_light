@@ -185,19 +185,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const mainFileObj = state.audioFiles.mainsound.find(f => f.name === data.main);
             const auxFileObj = state.audioFiles.plussound.find(f => f.name === data.aux);
 
-            // 如果找到了文件对象，就用它的 is_global 状态，否则默认为 false
+            // 关键修复：直接使用从 API 获取的 is_global 状态
             state.mainAudioIsGlobal = mainFileObj ? mainFileObj.is_global : false;
             state.auxAudioIsGlobal = auxFileObj ? auxFileObj.is_global : false;
 
             dom.mainTrackName.textContent = state.mainAudioFile || '无';
             dom.auxTrackName.textContent = state.auxAudioFile || '无';
-            await renderSoundscapeList(); // 刷新声景列表以正确禁用删除按钮
+            await renderSoundscapeList();
         } catch (error) {
             console.error(`Failed to update soundscape to ${name}`, error);
             await renderSoundscapeList();
         }
     }
-
     function resetAll() { state.isRunning = false; state.isPaused = false; state.currentPhase = 'idle'; if (state.animationFrameId) cancelAnimationFrame(state.animationFrameId); stopRunTimer(); state.totalRunTime = 0; dom.mainAudio.pause(); dom.auxAudio.pause(); dom.mainAudio.src = ''; dom.auxAudio.src = ''; if (audioCtx) { mainGainNode.gain.setValueAtTime(0, audioCtx.currentTime); auxGainNode.gain.setValueAtTime(0, audioCtx.currentTime); } dom.lightBg.style.transition = 'background-color 0.5s'; dom.lightBg.style.backgroundColor = '#000'; dom.guideText.style.opacity = 0; dom.statusDashboard.classList.add('hidden'); dom.startStopBtn.textContent = '开始'; dom.startStopBtn.className = ''; }
     
     function setupAppEventListeners() {
@@ -220,11 +219,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const loadAndPlayAudio = (audioElement, file, isGlobal, type) => {
                     if (file) {
                         let path;
+                        // 关键修复：isGlobal 状态现在是可靠的
                         if (isGlobal) {
-                            // 受保护的全局文件从 CDN 加载以获得最佳性能
+                            // 受保护的全局文件从 CDN 加载
                             path = `${CDN_BASE_URL}/static/${type}/${encodeURIComponent(file)}`;
                         } else {
-                            // 社区共享的文件从我们新的 /media/shared/ 路由加载
+                            // 社区共享的文件从我们自己的 /media/shared/ 路由加载
                             path = `/media/shared/${type}/${encodeURIComponent(file)}`;
                         }
                         console.log(`Loading audio from: ${path}`);

@@ -94,17 +94,21 @@ def create_app():
     def get_combined_audio_files(subfolder):
         audio_ext = ('.wav', '.mp3', '.ogg')
         results = []
+        # 1. Add all global (protected) files
         global_path = get_global_path(subfolder)
         if os.path.exists(global_path):
             for f in os.listdir(global_path):
                 if f.lower().endswith(audio_ext):
                     results.append({'name': f, 'is_global': True})
+        
+        # 2. Add all shared (community) files
         shared_path = get_shared_audio_path(subfolder)
         if os.path.exists(shared_path):
             for f in os.listdir(shared_path):
                 if f.lower().endswith(audio_ext):
                     if not any(r['name'] == f for r in results):
                         results.append({'name': f, 'is_global': False})
+        
         return sorted(results, key=lambda x: x['name'])
 
     @app.route('/api/get-audio-files')
