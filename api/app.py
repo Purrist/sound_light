@@ -1,30 +1,23 @@
 import os
 import json
+import re # 正则表达式模块
 from flask import Flask, jsonify, send_from_directory, request, g
-from werkzeug.utils import secure_filename
+from werkzeug.utils import secure_filename # 导入原始函数作为参考
 from .extensions import db, login_manager
 from .models import User
 from .auth import auth as auth_blueprint
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_login import login_required, current_user
-import getpass # 为了CLI命令导入
-
+import getpass
 
 # --- Path Definitions ---
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
-# Detect if we are running on Render by checking for a specific environment variable
 ON_RENDER = os.environ.get('ON_RENDER')
-
-# Set the instance folder path based on the environment
 if ON_RENDER:
-    # On Render, the data directory for persistent storage is mounted at /var/data
-    # We will create our instance folder inside it.
     INSTANCE_FOLDER = '/var/data/instance'
 else:
-    # Locally, use the instance folder at the project root
     INSTANCE_FOLDER = os.path.join(APP_ROOT, '..', 'instance')
-
 PUBLIC_FOLDER = os.path.join(APP_ROOT, '..', 'public')
 GLOBAL_STATIC_FOLDER = os.path.join(PUBLIC_FOLDER, 'static')
 USER_DATA_ROOT = os.path.join(INSTANCE_FOLDER, 'user_data')
@@ -42,6 +35,27 @@ def get_global_path(subfolder):
     os.makedirs(path, exist_ok=True)
     return path
 
+def secure_filename_custom(filename):
+    """
+    A custom secure_filename function that supports Unicode characters
+    but still prevents directory traversal attacks.
+    """
+    # 移除所有可能用于路径遍历的字符: / \ ..
+    filename = filename.replace('..', '')
+    filename = filename.replace('/', '')
+    filename = filename.replace('\\', '')
+    
+    # 将空格替换为下划线
+    filename = filename.replace(' ', '_')
+    
+    # 使用正则表达式移除其他不推荐的字符，但保留字母、数字、下划线、减号、点和中文字符
+    # \w 匹配 [a-zA-Z0-9_]
+    # \u4e00-\u9fa5 是中文字符的 Unicode 范围
+    filename = re.sub(r'[^\w\s.-]', '', filename, flags=re.UNICODE)
+    
+    # 清理文件名首尾可能多余的字符
+    return filename.strip('_.- ')
+
 # --- Application Factory ---
 def create_app():
     app = Flask(__name__,
@@ -51,20 +65,13 @@ def create_app():
 
     # --- Configuration ---
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'a_very_secret_key_for_development_12345')
-
-    # KEY CHANGE: Configure database based on environment
     if ON_RENDER:
-        # On Render, use the PostgreSQL database URL provided by the environment variable
         database_url = os.environ.get('DATABASE_URL')
         if database_url:
-            # Render's free PostgreSQL might use a 'postgres://' URI
-            # SQLAlchemy 2.0 prefers 'postgresql://'
             database_url = database_url.replace("postgres://", "postgresql://")
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     else:
-        # Locally, continue to use the SQLite database file
         app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(INSTANCE_FOLDER, 'database.db')
-
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
@@ -80,8 +87,7 @@ def create_app():
     CORS(app, supports_credentials=True, origins=["http://localhost:5000", "http://127.0.0.1:5000", "null"])
     app.register_blueprint(auth_blueprint)
 
-    # --- Combined Data Reading (GET requests - Unchanged) ---
-    # These functions for reading data remain the same as they should show both global and user data.
+    # --- Combined Data Reading (GET requests) ---
     def get_combined_json_files(subfolder):
         results = []
         global_path = get_global_path(subfolder)
@@ -115,7 +121,7 @@ def create_app():
                     results.append({'name': name, 'is_global': False})
         return sorted(results, key=lambda x: x['name'])
     
-    # --- Read-Only API Routes (Unchanged) ---
+    # --- Read-Only API Routes ---
     @app.route('/api/get-audio-files')
     @login_required
     def get_audio_files_api(): return jsonify({'mainsound': get_combined_audio_files('mainsound'), 'plussound': get_combined_audio_files('plussound')})
@@ -146,51 +152,35 @@ def create_app():
         if os.path.exists(file_path_global): return send_from_directory(global_path, f"{name}.json")
         return jsonify({'error': 'Controlset not found'}), 404
 
-    # --- MODIFIED Write API Routes (POST, PUT, DELETE) ---
-
+    # --- Write API Routes ---
     @app.route('/api/soundsets', methods=['POST', 'PUT'])
     @login_required
     def save_or_update_soundset():
         data = request.json; name = data.get('name')
         if not name: return jsonify({'error': 'Soundset name is required'}), 400
-        
-        # KEY CHANGE: Determine path based on admin status
         if current_user.is_admin:
-            # Admins write to the global static folder
             write_path = get_global_path('soundset')
         else:
-            # Normal users write to their own data folder
             write_path = get_user_path('soundset')
-        
         file_path = os.path.join(write_path, f"{name}.json")
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
         return jsonify({'message': f'Soundset {name} saved successfully'})
-
-    # 位于 api/app.py 中
 
     @app.route('/api/soundsets', methods=['DELETE'])
     @login_required
     def delete_soundset():
         name = request.json.get('name')
         if not name: return jsonify({'error': 'Name is required'}), 400
-
-        # KEY CHANGE: First, try to delete from the user's directory
-        user_path = get_user_path('soundset')
-        user_file_path = os.path.join(user_path, f"{name}.json")
+        user_path = get_user_path('soundset'); user_file_path = os.path.join(user_path, f"{name}.json")
         if os.path.exists(user_file_path):
             os.remove(user_file_path)
             return jsonify({'message': f'User soundset {name} deleted successfully'})
-
-        # If not found in user's dir, an ADMIN can try deleting from the global directory
         if current_user.is_admin:
-            global_path = get_global_path('soundset')
-            global_file_path = os.path.join(global_path, f"{name}.json")
+            global_path = get_global_path('soundset'); global_file_path = os.path.join(global_path, f"{name}.json")
             if os.path.exists(global_file_path):
                 os.remove(global_file_path)
                 return jsonify({'message': f'Global soundset {name} deleted successfully'})
-        
-        # If it's not found in either place (or user is not admin)
         return jsonify({'error': 'Soundset not found or permission denied'}), 404
     
     @app.route('/api/controlsets', methods=['POST'])
@@ -198,72 +188,46 @@ def create_app():
     def save_controlset():
         data = request.json; name = data.get('name'); settings = data.get('settings')
         if not name or not settings: return jsonify({'error': 'Name and settings are required'}), 400
-        
-        # KEY CHANGE: Determine path based on admin status
         if current_user.is_admin:
             write_path = get_global_path('controlset')
         else:
             write_path = get_user_path('controlset')
-        
         file_path = os.path.join(write_path, f"{name}.json")
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(settings, f, ensure_ascii=False, indent=4)
         return jsonify({'message': f'Controlset {name} saved successfully'})
-
-    # 位于 api/app.py 中
 
     @app.route('/api/controlsets', methods=['DELETE'])
     @login_required
     def delete_controlset():
         name = request.json.get('name')
         if not name: return jsonify({'error': 'Name is required'}), 400
-
-        # KEY CHANGE: First, try to delete from the user's directory
-        user_path = get_user_path('controlset')
-        user_file_path = os.path.join(user_path, f"{name}.json")
+        user_path = get_user_path('controlset'); user_file_path = os.path.join(user_path, f"{name}.json")
         if os.path.exists(user_file_path):
             os.remove(user_file_path)
             return jsonify({'message': f'User controlset {name} deleted successfully'})
-
-        # If not found in user's dir, an ADMIN can try deleting from the global directory
         if current_user.is_admin:
-            global_path = get_global_path('controlset')
-            global_file_path = os.path.join(global_path, f"{name}.json")
+            global_path = get_global_path('controlset'); global_file_path = os.path.join(global_path, f"{name}.json")
             if os.path.exists(global_file_path):
                 os.remove(global_file_path)
                 return jsonify({'message': f'Global controlset {name} deleted successfully'})
-
         return jsonify({'error': 'Controlset not found or permission denied'}), 404
 
-    # 替换为这个正确的版本
     @app.route('/api/controlsets/default', methods=['GET', 'POST'])
     @login_required
     def handle_default_controlset():
-        """Gets or sets the user's default controlset."""
-        
-        # 默认配置是用户个人化的，所以总是读取/写入用户自己的目录
         user_path = get_user_path('controlset')
-        if not user_path:
-            # 这是一个安全检查，对于已登录用户，通常不会发生
-            return jsonify({'error': 'User context not found'}), 500
-        
+        if not user_path: return jsonify({'error': 'User context not found'}), 500
         default_file = os.path.join(user_path, 'default.txt')
-
         if request.method == 'GET':
-            # 如果是 GET 请求，就读取默认配置文件
             if os.path.exists(default_file):
                 with open(default_file, 'r', encoding='utf-8') as f:
                     return jsonify({'default': f.read().strip()})
             else:
-                # 如果用户没有设置过自己的默认配置，就返回一个全局的、硬编码的默认值
                 return jsonify({'default': '默认配置'})
-        
         if request.method == 'POST':
-            # 如果是 POST 请求，就写入新的默认配置文件
             name = request.json.get('name')
-            if not name:
-                return jsonify({'error': 'Name is required to set default'}), 400
-            
+            if not name: return jsonify({'error': 'Name is required to set default'}), 400
             with open(default_file, 'w', encoding='utf-8') as f:
                 f.write(name)
             return jsonify({'message': f'Set {name} as default successfully'})
@@ -275,86 +239,56 @@ def create_app():
         if 'file' not in request.files: return jsonify({'error': '没有文件部分'}), 400
         file = request.files['file']
         if file.filename == '': return jsonify({'error': '没有选择文件'}), 400
-        
-        filename = secure_filename(file.filename)
-        # KEY CHANGE: Determine path based on admin status
-        if current_user.is_admin:
-            upload_path = get_global_path(track_type)
-        else:
-            upload_path = get_user_path(track_type)
-            # Normal users cannot overwrite a global file
-            global_file_path = os.path.join(get_global_path(track_type), filename)
-            if os.path.exists(global_file_path):
-                return jsonify({'error': f'无法上传，全局目录中已存在同名文件'}), 409
-        
-        file.save(os.path.join(upload_path, filename))
-        return jsonify({'message': '文件上传成功', 'filename': filename})
-
-    # 位于 api/app.py 中
+        if file:
+            filename = secure_filename_custom(file.filename)
+            if current_user.is_admin:
+                upload_path = get_global_path(track_type)
+            else:
+                upload_path = get_user_path(track_type)
+                global_file_path = os.path.join(get_global_path(track_type), filename)
+                if os.path.exists(global_file_path):
+                    return jsonify({'error': f'无法上传，全局目录中已存在同名文件'}), 409
+            file.save(os.path.join(upload_path, filename))
+            return jsonify({'message': '文件上传成功', 'filename': filename})
+        return jsonify({'error': '文件上传失败'}), 500
 
     @app.route('/api/delete-audio/<track_type>/<filename>', methods=['DELETE'])
     @login_required
     def delete_audio(track_type, filename):
         if track_type not in ['mainsound', 'plussound']: return jsonify({'error': '无效的音轨类型'}), 400
-        safe_filename = secure_filename(filename)
-
-        # KEY CHANGE: First, try to delete from the user's directory
-        user_path = get_user_path(track_type)
-        user_file_path = os.path.join(user_path, safe_filename)
+        safe_filename = secure_filename_custom(filename)
+        user_path = get_user_path(track_type); user_file_path = os.path.join(user_path, safe_filename)
         if os.path.exists(user_file_path):
             os.remove(user_file_path)
             return jsonify({'message': f'User audio file {safe_filename} deleted successfully'})
-
-        # If not found, an ADMIN can try deleting from the global directory
         if current_user.is_admin:
-            global_path = get_global_path(track_type)
-            global_file_path = os.path.join(global_path, safe_filename)
+            global_path = get_global_path(track_type); global_file_path = os.path.join(global_path, safe_filename)
             if os.path.exists(global_file_path):
                 os.remove(global_file_path)
                 return jsonify({'message': f'Global audio file {safe_filename} deleted successfully'})
-        
         return jsonify({'error': 'File not found or permission denied'}), 404
 
-    # --- Serve Frontend and CLI (Unchanged) ---
-    # 位于 api/app.py 文件底部
-
+    # --- Serve Frontend and CLI ---
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
-        # 优先服务 /public 目录下的静态文件，如 style.css, script.js
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
-
-        # 关键修复：这是处理用户上传文件的核心逻辑
         if hasattr(g, 'user') and g.user.is_authenticated and path.startswith('static/user/'):
-            # URL 路径格式: static/user/mainsound/some-file.mp3
             parts = path.split('/')
             if len(parts) == 4:
-                # parts -> ['static', 'user', 'mainsound', 'some-file.mp3']
                 _, _, track_type, filename = parts
-                
-                # 使用 get_user_path 来获取包含用户名的正确基础路径
-                # 它会返回像 /home/.../instance/user_data/purr/mainsound 这样的路径
                 user_folder_path = get_user_path(track_type)
-                
                 if user_folder_path and os.path.exists(os.path.join(user_folder_path, filename)):
-                    # 从用户的专属文件夹中安全地发送文件
                     return send_from_directory(user_folder_path, filename)
-        
-        # 对于所有其他未匹配的路径，返回主页 index.html
-        # 这对于单页面应用(SPA)的客户端路由至关重要
         return send_from_directory(app.static_folder, 'index.html')
-
+            
     @app.cli.command("set-admin")
     def set_admin_command():
         """Creates a new admin user or promotes an existing user and sets their password."""
-        import getpass
-        
         username = input("Enter username to make admin: ")
         password = getpass.getpass("Enter a new password for this admin (leave blank to not change): ")
-
         user = User.query.filter_by(username=username).first()
-
         if user:
             print(f"User '{username}' found. Promoting to admin...")
             user.is_admin = True
@@ -373,34 +307,6 @@ def create_app():
             db.session.add(admin_user)
             db.session.commit()
             print(f"Admin user '{username}' created successfully.")
-
-
-    @app.cli.command("reset-password")
-    def reset_password_command():
-        """Resets the password for a given user."""
-        import getpass
-        
-        username = input("Enter username for password reset: ")
-        user = User.query.filter_by(username=username).first()
-
-        if not user:
-            print(f"Error: User '{username}' not found.")
-            return
-
-        password = getpass.getpass("Enter new password: ")
-        password_confirm = getpass.getpass("Confirm new password: ")
-
-        if password != password_confirm:
-            print("Error: Passwords do not match.")
-            return
-        
-        if not password:
-            print("Error: Password cannot be empty.")
-            return
-
-        user.set_password(password)
-        db.session.commit()
-        print(f"Password for user '{username}' has been successfully reset.")
 
     return app
 
