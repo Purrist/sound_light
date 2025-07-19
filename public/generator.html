@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>音乐生成器</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="generator.css"> 
+</head>
+<body>
+    <div class="generator-container">
+        <!-- LEFT: Library Panel -->
+        <aside class="library-panel">
+            <div class="library-header">
+                <a href="/index.html" class="back-button">❮ 返回</a>
+                <h2>音源库</h2>
+            </div>
+            <div class="library-content">
+                <div class="library-section">
+                    <h3>主轨音频</h3>
+                    <ul id="mainAudioList" class="preset-list audio-list"></ul>
+                </div>
+                <div class="library-section">
+                    <h3>辅轨音频</h3>
+                    <ul id="auxAudioList" class="preset-list audio-list"></ul>
+                </div>
+                <div class="library-section">
+                    <h3>混音素材</h3>
+                    <ul id="mixElementsList" class="preset-list audio-list"></ul>
+                </div>
+            </div>
+        </aside>
+        <!-- RIGHT: Main Panel -->
+        <main class="generator-main">
+            <!-- Top Right: Creation Panel -->
+            <div class="creation-panel">
+                <div class="tabs">
+                    <button class="tab-button active" data-tab="main-track-generator">生成主轨音频</button>
+                    <button class="tab-button" data-tab="aux-track-generator">生成辅轨音频</button>
+                </div>
+                <!-- Main Track Generator Tab Content -->
+                <div id="main-track-generator" class="tab-content active">
+                    <h4>参数设置 (噪音)</h4>
+                    <div class="param-grid">
+                        <label>时长 (秒):</label>
+                        <input type="number" id="noiseDuration" value="30" min="1" max="300">
+                        
+                        <label for="toneSlider">音色:</label>
+                        <div class="slider-container">
+                            <span>沉闷</span>
+                            <input type="range" id="toneSlider" min="500" max="12000" value="8000" class="param-slider">
+                            <span>明亮</span>
+                        </div>
+
+                        <label for="widthSlider">立体声宽度:</label>
+                         <div class="slider-container">
+                            <span>单声道</span>
+                            <input type="range" id="widthSlider" min="0" max="1" value="0.8" step="0.05" class="param-slider">
+                            <span>宽广</span>
+                        </div>
+                    </div>
+                    <button id="generateMainBtn" class="generate-button">生成</button>
+                </div>
+                <!-- Aux Track Generator Tab Content -->
+                <div id="aux-track-generator" class="tab-content">
+                    <h4>混音层编辑器 (即将推出)</h4>
+                </div>
+            </div>
+            <!-- Bottom Right: Preview Panel -->
+            <div class="preview-panel">
+                <div id="preview-light-background"><div id="preview-guide-text">预览</div></div>
+                <div class="preview-controls">
+                    <button id="previewToggleBtn" disabled>▶ 预览</button>
+                    <label>呼吸频率: <input type="number" id="previewBPM" value="6"> 次/分</label>
+                    <label>响度范围 (dB): <input type="number" id="previewMinVol" value="-40"> - <input type="number" id="previewMaxVol" value="-10"></label>
+                    <button id="saveTrackBtn" disabled>💾 保存到音乐库</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    <audio id="previewAudio" loop crossorigin="anonymous"></audio>
+    <script src="generator.js"></script>
+</body>
+</html>

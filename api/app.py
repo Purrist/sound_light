@@ -1,19 +1,18 @@
-# api/app.py (版本 3.2 - 恢复被误删的配置路由)
-
 import os
 import json
 import re
 import shutil
-from .generator import generate_pink_noise, process_and_save_track
 from flask import Flask, jsonify, send_from_directory, request, g, abort
 from urllib.parse import unquote
 from .extensions import db, login_manager
-from .models import User
+from .models import User, AudioFile # Import the new model
 from .auth import auth as auth_blueprint
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_login import login_required, current_user
 import getpass
+# Import our new generator functions
+from .generator import generate_noise, process_and_save_track
 
 # --- Path Definitions ---
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -289,39 +288,64 @@ def create_app():
     @app.route('/api/generate/main-noise', methods=['POST'])
     @login_required
     def generate_main_noise_route():
-        """
-        API endpoint to generate a main noise track.
-        """
         try:
-            params = request.get_json()
-            if not params:
-                params = {} # Use defaults if no params are sent
-
-            # 1. Generate the raw noise data
-            duration_ms = params.get('duration_ms', 30000) # Default to 30 seconds
-            noise_segment = generate_pink_noise(duration_ms=duration_ms)
+            params = request.get_json() or {}
             
-            # 2. Process (volume, fades) and save the track
-            # Generated tracks are always saved to the shared folder first
-            temp_filename = process_and_save_track(
-                noise_segment, 
-                'mainsound', 
-                get_shared_audio_path, 
-                params
+            noise_segment = generate_noise(
+                duration_s=params.get('duration_s', 30),
+                color=params.get('color', 'pink'),
+                channels=2,
+                tone_cutoff_hz=params.get('tone_cutoff_hz', 8000),
+                stereo_width=params.get('stereo_width', 0.8)
             )
             
-            # 3. Return the temporary filename to the frontend
+            temp_filename = process_and_save_track(
+                noise_segment, 'mainsound', get_shared_audio_path, params
+            )
+            
             return jsonify({
                 "success": True,
                 "filename": temp_filename,
                 "message": "主轨噪音已成功生成"
             })
-            
         except Exception as e:
-            # Log the full error to the server console for debugging
             app.logger.error(f"Error in generate_main_noise_route: {e}", exc_info=True)
             return jsonify({"success": False, "error": "生成音频时发生内部错误"}), 500
 
+    # NEW: API to save the temporary generated track
+    @app.route('/api/audio/save-temp', methods=['POST'])
+    @login_required
+    def save_temp_audio():
+        data = request.get_json()
+        temp_filename = data.get('temp_filename')
+        final_filename = secure_filename_custom(data.get('final_filename'))
+        track_type = data.get('track_type')
+
+        if not all([temp_filename, final_filename, track_type]):
+            return jsonify({"error": "缺少必要参数"}), 400
+        
+        # Check for name collision
+        if AudioFile.query.filter_by(filename=final_filename, track_type=track_type).first():
+            return jsonify({'error': '已存在同名音频文件'}), 409
+
+        temp_path = os.path.join(get_shared_audio_path(track_type), temp_filename)
+        final_path = os.path.join(get_shared_audio_path(track_type), final_filename)
+
+        if os.path.exists(temp_path):
+            os.rename(temp_path, final_path)
+            
+            new_audio = AudioFile(
+                filename=final_filename,
+                track_type=track_type,
+                is_global=False,
+                user_id=current_user.id
+            )
+            db.session.add(new_audio)
+            db.session.commit()
+            return jsonify({"success": True, "message": "音频已成功保存到音乐库"})
+        
+        return jsonify({"error": "临时文件未找到"}), 404
+    
     # --- File Serving Routes ---
     @app.route('/media/shared/<track_type>/<path:filename>')
     def serve_shared_file(track_type, filename):

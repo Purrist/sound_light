@@ -1,5 +1,3 @@
-# api/models.py (版本 4.0)
-
 from .extensions import db
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin
@@ -22,8 +20,8 @@ class User(UserMixin, db.Model):
 class AudioFile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(300), nullable=False)
-    track_type = db.Column(db.String(50), nullable=False) # 'mainsound' or 'plussound'
-    is_global = db.Column(db.Boolean, default=False, nullable=False) # This is our "tag"
+    track_type = db.Column(db.String(50), nullable=False) # 'mainsound', 'plussound', or 'mix_elements'
+    is_global = db.Column(db.Boolean, default=False, nullable=False) # This is our "tag" for protection
     # Foreign key to link to the User who uploaded it
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
