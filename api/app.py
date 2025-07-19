@@ -2,7 +2,7 @@ import os
 import json
 import re
 from flask import Flask, jsonify, send_from_directory, request, g, abort
-from urllib.parse import quote, unquote
+from urllib.parse import unquote
 from .extensions import db, login_manager
 from .models import User
 from .auth import auth as auth_blueprint
@@ -21,8 +21,7 @@ USER_DATA_ROOT = os.path.join(INSTANCE_FOLDER, 'user_data')
 
 # --- Helper Functions ---
 def get_user_path(subfolder, username=None):
-    # Allow specifying a username for admin access, otherwise use current logged in user
-    user = username if username else (g.user.username if hasattr(g, 'user') and g.user.is_authenticated else None)
+    user = username if username else (current_user.username if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated else None)
     if user:
         path = os.path.join(USER_DATA_ROOT, user, subfolder)
         os.makedirs(path, exist_ok=True)
@@ -246,17 +245,14 @@ def create_app():
         """
         Securely serves files uploaded by users.
         """
-        # SECURITY CHECK: Users can only access their own files. Admins can access anyone's.
         if not current_user.is_admin and current_user.username != username:
             abort(403) # Forbidden
-
         if track_type not in ['mainsound', 'plussound']:
             abort(404)
-
-        # Construct the absolute path to the user's directory
+        
+        # Flask's path converter handles URL decoding, so filename is already Unicode
         user_specific_path = get_user_path(track_type, username=username)
-
-        # Use send_from_directory for security and proper header handling
+        
         return send_from_directory(user_specific_path, filename)
 
     # --- SIMPLIFIED SERVE ROUTE FOR FRONTEND ---

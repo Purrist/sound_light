@@ -48,28 +48,33 @@ document.addEventListener('DOMContentLoaded', () => {
         mainTrackSelect: document.getElementById('mainTrackSelect'), auxTrackSelect: document.getElementById('auxTrackSelect'),
         confirmSaveSoundscapeBtn: document.getElementById('confirmSaveSoundscapeBtn'),
     };
-    const GITHUB_USER = 'purrist'; // <-- 替换成您的 GitHub 用户名
-    const GITHUB_REPO = 'sound_light'; // <-- 替换成您的仓库名
-    const GITHUB_BRANCH = 'web'; // <-- 您的部署分支
-    const CDN_BASE_URL = `https://cdn.jsdelivr.net/gh/${GITHUB_USER}/${GITHUB_REPO}@${GITHUB_BRANCH}/public`;
     let audioCtx, mainGainNode, auxGainNode, pannerNode, mainSource, auxSource;
     let kelvinLookupTable = [];
     const masterRange = { start: { k: 2000, hex: '#f57e0f' }, end: { k: 8000, hex: '#8cb1ff' } };
+    const GITHUB_USER = 'purrist';
+    const GITHUB_REPO = 'sound_light';
+    const GITHUB_BRANCH = 'web';
+    const CDN_BASE_URL = `https://cdn.jsdelivr.net/gh/${GITHUB_USER}/${GITHUB_REPO}@${GITHUB_BRANCH}/public`;
 
     // --- 2. API & AUTHENTICATION ---
     async function apiCall(url, method = 'GET', body = null) {
-        const options = { method, headers: {} };
-        if (body) {
-            options.body = JSON.stringify(body);
-            options.headers['Content-Type'] = 'application/json';
+        try {
+            const options = { method, headers: {} };
+            if (body) {
+                options.body = JSON.stringify(body);
+                options.headers['Content-Type'] = 'application/json';
+            }
+            const response = await fetch(url, options);
+            const responseData = await response.json().catch(() => null);
+            if (!response.ok) {
+                const errorMessage = responseData?.error || `HTTP error! status: ${response.status}`;
+                throw new Error(errorMessage);
+            }
+            return responseData;
+        } catch (error) {
+            console.error('API Call Failed:', url, error);
+            throw error;
         }
-        const response = await fetch(url, options);
-        const responseData = await response.json().catch(() => null);
-        if (!response.ok) {
-            const errorMessage = responseData?.error || `HTTP error! status: ${response.status}`;
-            throw new Error(errorMessage);
-        }
-        return responseData;
     }
     
     function setupAuthEventListeners() {
@@ -109,7 +114,6 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.panningEnable.dispatchEvent(new Event('change')); dom.auxEnable.dispatchEvent(new Event('change'));
     }
 
-    // 位于 public/script.js 中
     async function renderConfigList() {
         try {
             const configs = await apiCall('/api/controlsets');
@@ -121,93 +125,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 li.className = (item.name === defaultName) ? 'is-default' : '';
                 if(item.is_global) li.classList.add('is-global');
                 li.innerHTML = `<span class="preset-name">${item.name}</span><div class="preset-actions"><button class="apply-btn" title="应用">✔</button><button class="default-btn" title="设为默认">⭐</button><button class="delete-btn" title="删除">✕</button></div>`;
-                
                 li.querySelector('.apply-btn').addEventListener('click', async () => applySettings(await apiCall(`/api/controlsets/${item.name}`)));
                 li.querySelector('.default-btn').addEventListener('click', async () => { await apiCall('/api/controlsets/default', 'POST', { name: item.name }); renderConfigList(); });
-                
-                // KEY CHANGE: Attach the delete listener to ALL items.
-                // The backend will handle the permission logic.
-                li.querySelector('.delete-btn').addEventListener('click', async () => {
-                    if (confirm(`确定删除配置 "${item.name}"?`)) {
-                        try {
-                            await apiCall('/api/controlsets', 'DELETE', { name: item.name });
-                            await renderConfigList();
-                        } catch (error) {
-                            alert(`删除失败: ${error.message}`);
-                        }
-                    }
-                });
+                li.querySelector('.delete-btn').addEventListener('click', async () => { if (confirm(`确定删除配置 "${item.name}"?`)) { try { await apiCall('/api/controlsets', 'DELETE', { name: item.name }); await renderConfigList(); } catch (error) { alert(`删除失败: ${error.message}`); } } });
                 dom.configList.appendChild(li);
-            });
+});
         } catch (e) { console.error("Failed to render config list:", e); }
     }
-
-    // 位于 public/script.js 中
-    // 位于 public/script.js 中
-// 请用这个函数完整替换掉旧的同名函数
 
     async function renderSoundscapeList() {
         try {
             state.soundscapes = await apiCall('/api/soundsets');
-            const currentSelectedSoundscape = dom.soundscapeSelect.value;
-
-            // 刷新主选择器 (下拉菜单)
+            const currentVal = dom.soundscapeSelect.value;
             dom.soundscapeSelect.innerHTML = '';
-            state.soundscapes.forEach(item => {
-                dom.soundscapeSelect.innerHTML += `<option value="${item.name}">${item.name}</option>`;
-            });
-
-            // 确保之前的选择在刷新后仍然有效
-            if (currentSelectedSoundscape && state.soundscapes.some(s => s.name === currentSelectedSoundscape)) {
-                dom.soundscapeSelect.value = currentSelectedSoundscape;
-            } else if (state.soundscapes.length > 0) {
-                dom.soundscapeSelect.value = state.soundscapes[0].name;
-            }
-
-            // 刷新右侧的声景管理列表
+            state.soundscapes.forEach(item => dom.soundscapeSelect.innerHTML += `<option value="${item.name}">${item.name}</option>`);
+            if (currentVal && state.soundscapes.some(s => s.name === currentVal)) dom.soundscapeSelect.value = currentVal; else if (state.soundscapes.length > 0) dom.soundscapeSelect.value = state.soundscapes[0].name;
+            
             dom.soundscapeManagementList.innerHTML = '';
             state.soundscapes.forEach(item => {
                 const li = document.createElement('li');
-                if (item.is_global) {
-                    li.classList.add('is-global');
-                }
-
-                li.innerHTML = `<span class="preset-name">${item.name}</span>
-                                <div class="preset-actions">
-                                    <button class="delete-btn" title="删除">✕</button>
-                                </div>`;
-
+                if(item.is_global) li.classList.add('is-global');
+                li.innerHTML = `<span class="preset-name">${item.name}</span><div class="preset-actions"><button class="delete-btn" title="删除">✕</button></div>`;
                 const deleteBtn = li.querySelector('.delete-btn');
-
-                // 关键修复：这是唯一应该禁用删除按钮的条件
-                // 只有当这个声景是当前正在被激活使用的声景时，才禁用删除
-                if (item.name === dom.soundscapeSelect.value) {
-                    deleteBtn.disabled = true;
-                    deleteBtn.title = '无法删除正在使用的声景';
-                }
-
-                // 为所有可用的删除按钮添加点击事件
-                deleteBtn.addEventListener('click', async () => {
-                    if (confirm(`确定删除声景 "${item.name}"?`)) {
-                        try {
-                            await apiCall('/api/soundsets', 'DELETE', { name: item.name });
-                            // 删除成功后，彻底刷新所有相关列表
-                            await renderSoundscapeList();
-                            await renderConfigList(); 
-                        } catch(error) {
-                            alert(`删除失败: ${error.message}`);
-                        }
-                    }
-                });
-
+                if (item.name === dom.soundscapeSelect.value) { deleteBtn.disabled = true; deleteBtn.title = '无法删除正在使用的声景'; }
+                deleteBtn.addEventListener('click', async () => { if (confirm(`确定删除声景 "${item.name}"?`)) { try { await apiCall('/api/soundsets', 'DELETE', { name: item.name }); await renderSoundscapeList(); await renderConfigList(); } catch(error) { alert(`删除失败: ${error.message}`); } } });
                 dom.soundscapeManagementList.appendChild(li);
             });
-        } catch(e) {
-            console.error("Failed to render soundscape list:", e);
-        }
+        } catch(e) { console.error("Failed to render soundscape list:", e); }
     }
     
-    // 位于 public/script.js 中
     async function renderAudioLists() {
         state.audioFiles = await apiCall('/api/get-audio-files');
         const populateList = (listElement, files, trackType) => {
@@ -217,18 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const li = document.createElement('li');
                 li.className = file.is_global ? 'is-global' : 'is-user';
                 li.innerHTML = `<span class="preset-name">${file.name}</span><div class="preset-actions"><button class="delete-btn" title="删除">✕</button></div>`;
-                
-                // KEY CHANGE: Attach the delete listener to ALL audio files.
-                li.querySelector('.delete-btn').addEventListener('click', async () => {
-                    if (confirm(`确定要删除音频 "${file.name}" 吗？`)) {
-                        try {
-                            await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE');
-                            await renderAudioLists(); // Refresh lists
-                        } catch (error) {
-                            alert(`删除失败: ${error.message}`);
-                        }
-                    }
-                });
+                li.querySelector('.delete-btn').addEventListener('click', async () => { if (confirm(`确定要删除音频 "${file.name}" 吗？`)) { try { await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE'); await renderAudioLists(); } catch (error) { alert(`删除失败: ${error.message}`); } } });
                 listElement.appendChild(li);
             });
         };
@@ -266,52 +201,31 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- 5. EVENT LISTENERS ---
     function setupAppEventListeners() {
-        // --- UI Binding ---
         function setupMasterRangeBinding(kelvinInput, hexInput, rangeKey) { kelvinInput.addEventListener('change', () => { masterRange[rangeKey].k = parseInt(kelvinInput.value); masterRange[rangeKey].hex = kelvinToHex(kelvinInput.value); hexInput.value = masterRange[rangeKey].hex; kelvinInput.style.backgroundColor = masterRange[rangeKey].hex; updateMasterGradient(); }); hexInput.addEventListener('input', () => { masterRange[rangeKey].hex = hexInput.value; masterRange[rangeKey].k = hexToKelvin(hexInput.value); kelvinInput.value = masterRange[rangeKey].k; kelvinInput.style.backgroundColor = masterRange[rangeKey].hex; updateMasterGradient(); }); }
         function setupValueBinding(slider, numberDisplay, hiddenColorInput) { slider.addEventListener('input', () => { const currentKelvin = parseInt(slider.value); const startK = parseInt(masterRange.start.k); const endK = parseInt(masterRange.end.k); const minK = Math.min(startK, endK); const maxK = Math.max(startK, endK); const clampedKelvin = Math.max(minK, Math.min(maxK, currentKelvin)); const totalRange = endK - startK; const progress = totalRange === 0 ? 0.5 : (clampedKelvin - startK) / totalRange; const newHex = interpolateColor(masterRange.start.hex, masterRange.end.hex, progress); numberDisplay.value = clampedKelvin; slider.value = clampedKelvin; numberDisplay.style.backgroundColor = newHex; if(hiddenColorInput) hiddenColorInput.value = newHex; }); numberDisplay.addEventListener('change', () => { slider.value = numberDisplay.value; slider.dispatchEvent(new Event('input', { bubbles: true })); }); }
         setupMasterRangeBinding(dom.masterKelvinStart, dom.masterHexStart, 'start'); setupMasterRangeBinding(dom.masterKelvinEnd, dom.masterHexEnd, 'end');
         setupValueBinding(dom.kelvinSliderDefault, dom.kelvinDefault, dom.defaultColor); setupValueBinding(dom.kelvinSliderMin, dom.kelvinMin, dom.warmColor); setupValueBinding(dom.kelvinSliderMax, dom.kelvinMax, dom.coolColor);
 
-        // --- User Actions ---
         dom.startStopBtn.addEventListener('click', () => {
             if (!state.isRunning) {
-                console.log("--- STARTING RUN ---");
-                console.time("Total Startup Time"); // 开始计时
-
                 setupAudioContext();
-                if (audioCtx.state === 'suspended') {
-                    audioCtx.resume();
-                }
-
-                state.isRunning = true;
-                state.isPaused = false;
-                state.currentPhase = 'fadeIn';
-                state.startTime = performance.now();
-                lastFrameTime = 0;
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                state.isRunning = true; state.isPaused = false; state.currentPhase = 'fadeIn';
+                state.startTime = performance.now(); lastFrameTime = 0;
                 dom.lightBg.style.transition = 'none';
-
+                
                 const loadAndPlayAudio = (audioElement, file, isGlobal, type) => {
                     if (file) {
                         let path;
                         if (isGlobal) {
                             path = `${CDN_BASE_URL}/static/${type}/${file}`;
                         } else {
-                            // 在本地，我们直接从 Flask 服务器加载用户音频
-                            const localApiBase = ''; // 本地运行时 API 前缀为空
-                            path = `${localApiBase}/static/user/${type}/${file}`;
+                            path = `/media/${state.username}/${type}/${encodeURIComponent(file)}`;
                         }
-                        console.log(`[${type}] Setting src to: ${path}`);
-                        
+                        console.log(`Loading audio from: ${path}`);
                         audioElement.src = path;
-                        
-                        // KEY CHANGE: Wait for the audio to be ready before playing
-                        audioElement.addEventListener('canplaythrough', () => {
-                            console.log(`[${type}] Audio is ready. Calling play().`);
-                            audioElement.play().catch(e => console.error(`[${type}] Audio play() failed:`, e));
-                        }, { once: true }); // Use {once: true} so this listener only fires once
-
-                        console.log(`[${type}] Loading audio...`);
-                        audioElement.load(); // Explicitly tell the browser to load the new source
+                        audioElement.load();
+                        audioElement.play().catch(e => console.error(`Audio play failed for ${path}:`, e));
                     }
                 };
 
@@ -322,29 +236,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 startRunTimer();
                 state.animationFrameId = requestAnimationFrame(mainLoop);
-                dom.startStopBtn.textContent = '暂停';
-                dom.startStopBtn.className = 'running';
-                console.timeEnd("Total Startup Time"); // 结束计时
-            
+                dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
             } else if (state.isPaused) {
-                // ... (暂停和继续的逻辑保持不变)
-                state.isPaused = false; 
-                if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-                dom.mainAudio.play().catch(e => {}); 
-                dom.auxAudio.play().catch(e => {});
-                lastFrameTime = performance.now(); 
-                state.animationFrameId = requestAnimationFrame(mainLoop);
-                dom.startStopBtn.textContent = '暂停'; 
-                dom.startStopBtn.className = 'running';
+                state.isPaused = false; if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                dom.mainAudio.play().catch(e => {}); dom.auxAudio.play().catch(e => {});
+                lastFrameTime = performance.now(); state.animationFrameId = requestAnimationFrame(mainLoop);
+                dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
             } else {
-                // ...
-                state.isPaused = true; 
-                if(audioCtx) audioCtx.suspend();
-                dom.mainAudio.pause(); 
-                dom.auxAudio.pause();
+                state.isPaused = true; if(audioCtx) audioCtx.suspend();
+                dom.mainAudio.pause(); dom.auxAudio.pause();
                 cancelAnimationFrame(state.animationFrameId);
-                dom.startStopBtn.textContent = '继续'; 
-                dom.startStopBtn.className = 'paused';
+                dom.startStopBtn.textContent = '继续'; dom.startStopBtn.className = 'paused';
             }
         });
         dom.resetBtn.addEventListener('click', () => { if(state.isRunning && !confirm("确定停止并重启?")) return; resetAll(); });
@@ -384,7 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const main = dom.mainTrackSelect.value; const aux = dom.auxTrackSelect.value; if (!main) return alert('请至少选择一个主轨音频！');
             const payload = { name, main, aux };
             try {
-                await apiCall('/api/soundsets', 'POST', payload); // API handles POST for create and PUT for update
+                await apiCall('/api/soundsets', 'POST', payload);
                 dom.soundscapeModal.classList.add('hidden');
                 await renderSoundscapeList();
                 dom.soundscapeSelect.value = name;
