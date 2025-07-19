@@ -4,8 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isRunning: false, isPaused: false, currentPhase: 'idle', breathPhase: 'inhale',
         animationFrameId: null, runTimerId: null, totalRunTime: 0, startTime: 0, syncStartTime: 0,
         mainAudioFile: null, auxAudioFile: null,
-        mainAudioIsGlobal: true, auxAudioIsGlobal: true,
-        audioFiles: { mainsound: [], plussound: [] },
+        audioFiles: { mainsound: [], plussound: [], mix_elements: [] },
         soundscapes: [],
     };
     const dom = {
@@ -51,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let audioCtx, mainGainNode, auxGainNode, pannerNode, mainSource, auxSource;
     let kelvinLookupTable = [];
     const masterRange = { start: { k: 2000, hex: '#f57e0f' }, end: { k: 8000, hex: '#8cb1ff' } };
-    
+
     async function apiCall(url, method = 'GET', body = null) { try { const options = { method, headers: {} }; if (body) { options.body = JSON.stringify(body); options.headers['Content-Type'] = 'application/json'; } const response = await fetch(url, options); const responseData = await response.json().catch(() => null); if (!response.ok) { const errorMessage = responseData?.error || `HTTP error! status: ${response.status}`; throw new Error(errorMessage); } return responseData; } catch (error) { console.error('API Call Failed:', url, error); throw error; } }
     
     function setupAuthEventListeners() { dom.showRegister.addEventListener('click', (e) => { e.preventDefault(); dom.loginForm.classList.add('hidden'); dom.registerForm.classList.remove('hidden'); dom.loginError.textContent = ''; dom.registerError.textContent = ''; }); dom.showLogin.addEventListener('click', (e) => { e.preventDefault(); dom.registerForm.classList.add('hidden'); dom.loginForm.classList.remove('hidden'); dom.loginError.textContent = ''; dom.registerError.textContent = ''; }); dom.loginForm.addEventListener('submit', async (e) => { e.preventDefault(); const u = document.getElementById('login-username').value; const p = document.getElementById('login-password').value; try { const d = await apiCall('/auth/login', 'POST', { username: u, password: p }); dom.loginError.textContent = ''; await handleSuccessfulLogin(d.username, d.is_admin); } catch (err) { dom.loginError.textContent = err.message; } }); dom.registerForm.addEventListener('submit', async (e) => { e.preventDefault(); const u = document.getElementById('register-username').value; const p = document.getElementById('register-password').value; try { await apiCall('/auth/register', 'POST', { username: u, password: p }); dom.registerError.textContent = ''; alert('注册成功！请登录。'); document.getElementById('login-username').value = u; document.getElementById('login-password').value = ''; dom.showLogin.click(); } catch (err) { dom.registerError.textContent = err.message; } }); dom.logoutBtn.addEventListener('click', async () => { try { await apiCall('/auth/logout', 'POST'); } catch (err) { console.error("Logout failed but proceeding:", err); } window.location.reload(); }); }
@@ -93,29 +92,19 @@ document.addEventListener('DOMContentLoaded', () => {
             files.forEach(file => {
                 const li = document.createElement('li');
                 li.className = file.is_global ? 'is-global' : 'is-user';
-                
                 let actionButtons = '';
-                
-                // 规则 1: 任何登录用户都能删除未受保护的文件
                 if (!file.is_global) {
                     actionButtons += `<button class="delete-btn" title="删除">✕</button>`;
                 }
-                
-                // 规则 2: 只有管理员能看到额外的管理按钮
                 if (state.isAdmin) {
                     if (file.is_global) {
-                        // 管理员也能删除受保护的文件
                         actionButtons += `<button class="delete-btn" title="删除受保护文件">✕</button>`;
-                        // KEY CHANGE: Add unprotect button for global files
-                        actionButtons += `<button class="unprotect-btn" title="取消保护 (移回共享库)">🔓</button>`;
+                        actionButtons += `<button class="unprotect-btn" title="取消保护">🔓</button>`;
                     } else {
-                        // 管理员能在共享文件旁看到“保护”按钮
                         actionButtons += `<button class="protect-btn" title="保护 (设为全局)">🔒</button>`;
                     }
                 }
                 li.innerHTML = `<span class="preset-name">${file.name}</span><div class="preset-actions">${actionButtons}</div>`;
-                
-                // --- Event Listeners ---
                 const deleteBtn = li.querySelector('.delete-btn');
                 if (deleteBtn) {
                     deleteBtn.addEventListener('click', async () => {
@@ -127,7 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     });
                 }
-                
                 const protectBtn = li.querySelector('.protect-btn');
                 if (protectBtn) {
                     protectBtn.addEventListener('click', async () => {
@@ -137,8 +125,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         } catch (err) { alert(`操作失败: ${err.message}`); }
                     });
                 }
-
-                // KEY CHANGE: Add event listener for the new unprotect button
                 const unprotectBtn = li.querySelector('.unprotect-btn');
                 if (unprotectBtn) {
                     unprotectBtn.addEventListener('click', async () => {
@@ -148,50 +134,30 @@ document.addEventListener('DOMContentLoaded', () => {
                         } catch (err) { alert(`操作失败: ${err.message}`); }
                     });
                 }
-
                 listElement.appendChild(li);
             });
         };
         populateList(dom.mainAudioList, state.audioFiles.mainsound, 'mainsound');
         populateList(dom.auxAudioList, state.audioFiles.plussound, 'plussound');
-
-        const populateSelect = (sel, files, empty = false) => {
-            sel.innerHTML = empty ? '<option value="">无</option>' : '';
-            if (!files) return;
-            files.forEach(f => sel.innerHTML += `<option value="${f.name}">${f.name}</option>`);
-        };
+        const populateSelect = (sel, files, empty = false) => { sel.innerHTML = empty ? '<option value="">无</option>' : ''; if (!files) return; files.forEach(f => sel.innerHTML += `<option value="${f.name}">${f.name}</option>`); };
         populateSelect(dom.mainTrackSelect, state.audioFiles.mainsound);
         populateSelect(dom.auxTrackSelect, state.audioFiles.plussound, true);
     }
     
     async function updateCurrentSoundscape(name) {
-        if (!name) {
-            state.mainAudioFile = null;
-            state.auxAudioFile = null;
-            dom.mainTrackName.textContent = '无';
-            dom.auxTrackName.textContent = '无';
-            return;
-        }
+        if (!name) { state.mainAudioFile = null; state.auxAudioFile = null; dom.mainTrackName.textContent = '无'; dom.auxTrackName.textContent = '无'; return; }
         try {
             const data = await apiCall(`/api/soundsets/${name}`);
-            state.mainAudioFile = data.main || null;
-            state.auxAudioFile = data.aux || null;
-
-            // 在完整的音频列表中查找文件对象，以获取其 is_global 状态
-            const mainFileObj = state.audioFiles.mainsound.find(f => f.name === data.main);
-            const auxFileObj = state.audioFiles.plussound.find(f => f.name === data.aux);
-
-            // 这个状态现在是决定 URL 的唯一依据
-            state.mainAudioIsGlobal = mainFileObj ? mainFileObj.is_global : false;
-            state.auxAudioIsGlobal = auxFileObj ? auxFileObj.is_global : false;
-
-            dom.mainTrackName.textContent = state.mainAudioFile || '无';
-            dom.auxTrackName.textContent = state.auxAudioFile || '无';
+            const mainFile = data.main || null;
+            const auxFile = data.aux || null;
+            const mainFileObj = state.audioFiles.mainsound.find(f => f.name === mainFile) || null;
+            const auxFileObj = state.audioFiles.plussound.find(f => f.name === auxFile) || null;
+            state.mainAudioFile = mainFileObj;
+            state.auxAudioFile = auxFileObj;
+            dom.mainTrackName.textContent = mainFileObj ? mainFileObj.name : '无';
+            dom.auxTrackName.textContent = auxFileObj ? auxFileObj.name : '无';
             await renderSoundscapeList();
-        } catch (error) {
-            console.error(`Failed to update soundscape to ${name}`, error);
-            await renderSoundscapeList();
-        }
+        } catch (error) { console.error(`Failed to update soundscape to ${name}`, error); await renderSoundscapeList(); }
     }
 
     function resetAll() { state.isRunning = false; state.isPaused = false; state.currentPhase = 'idle'; if (state.animationFrameId) cancelAnimationFrame(state.animationFrameId); stopRunTimer(); state.totalRunTime = 0; dom.mainAudio.pause(); dom.auxAudio.pause(); dom.mainAudio.src = ''; dom.auxAudio.src = ''; if (audioCtx) { mainGainNode.gain.setValueAtTime(0, audioCtx.currentTime); auxGainNode.gain.setValueAtTime(0, audioCtx.currentTime); } dom.lightBg.style.transition = 'background-color 0.5s'; dom.lightBg.style.backgroundColor = '#000'; dom.guideText.style.opacity = 0; dom.statusDashboard.classList.add('hidden'); dom.startStopBtn.textContent = '开始'; dom.startStopBtn.className = ''; }
@@ -204,25 +170,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         dom.startStopBtn.addEventListener('click', () => {
             if (!state.isRunning) {
-                setupAudioContext();
-                if (audioCtx.state === 'suspended') audioCtx.resume();
-                state.isRunning = true;
-                state.isPaused = false;
-                state.currentPhase = 'fadeIn';
-                state.startTime = performance.now();
-                lastFrameTime = 0;
+                setupAudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume();
+                state.isRunning = true; state.isPaused = false; state.currentPhase = 'fadeIn';
+                state.startTime = performance.now(); lastFrameTime = 0;
                 dom.lightBg.style.transition = 'none';
                 
-                const loadAndPlayAudio = (audioElement, file, isGlobal, type) => {
-                    if (file) {
+                const loadAndPlayAudio = (audioElement, fileObj, type) => {
+                    if (fileObj && fileObj.name) {
                         let path;
-                        // 逻辑变得非常简单和清晰
-                        if (isGlobal) {
-                            // 全局文件从我们新的 /static-media/ 路由加载
-                            path = `/static-media/${type}/${encodeURIComponent(file)}`;
+                        if (fileObj.is_global) {
+                            path = `/static-media/${type}/${encodeURIComponent(fileObj.name)}`;
                         } else {
-                            // 社区共享文件从 /media/shared/ 路由加载
-                            path = `/media/shared/${type}/${encodeURIComponent(file)}`;
+                            path = `/media/shared/${type}/${encodeURIComponent(fileObj.name)}`;
                         }
                         console.log(`Loading audio from: ${path}`);
                         audioElement.src = path;
@@ -230,37 +189,23 @@ document.addEventListener('DOMContentLoaded', () => {
                         audioElement.play().catch(e => console.error(`Audio play failed for ${path}:`, e));
                     }
                 };
-
-                loadAndPlayAudio(dom.mainAudio, state.mainAudioFile, state.mainAudioIsGlobal, 'mainsound');
-                if (dom.auxEnable.checked) {
-                    loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, state.auxAudioIsGlobal, 'plussound');
-                }
-
+                loadAndPlayAudio(dom.mainAudio, state.mainAudioFile, 'mainsound');
+                if (dom.auxEnable.checked) { loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, 'plussound'); }
                 startRunTimer();
                 state.animationFrameId = requestAnimationFrame(mainLoop);
-                dom.startStopBtn.textContent = '暂停';
-                dom.startStopBtn.className = 'running';
+                dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
             } else if (state.isPaused) {
-                state.isPaused = false;
-                if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-                dom.mainAudio.play().catch(e => {});
-                dom.auxAudio.play().catch(e => {});
-                lastFrameTime = performance.now();
-                state.animationFrameId = requestAnimationFrame(mainLoop);
-                dom.startStopBtn.textContent = '暂停';
-                dom.startStopBtn.className = 'running';
+                state.isPaused = false; if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                dom.mainAudio.play().catch(e => {}); dom.auxAudio.play().catch(e => {});
+                lastFrameTime = performance.now(); state.animationFrameId = requestAnimationFrame(mainLoop);
+                dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
             } else {
-                state.isPaused = true;
-                if(audioCtx) audioCtx.suspend();
-                dom.mainAudio.pause();
-                dom.auxAudio.pause();
+                state.isPaused = true; if(audioCtx) audioCtx.suspend();
+                dom.mainAudio.pause(); dom.auxAudio.pause();
                 cancelAnimationFrame(state.animationFrameId);
-                dom.startStopBtn.textContent = '继续';
-                dom.startStopBtn.className = 'paused';
+                dom.startStopBtn.textContent = '继续'; dom.startStopBtn.className = 'paused';
             }
         });
-
-
         dom.resetBtn.addEventListener('click', () => { if(state.isRunning && !confirm("确定停止并重启?")) return; resetAll(); });
         dom.toggleConsoleBtn.addEventListener('click', () => dom.consoleWrapper.classList.toggle('collapsed'));
         dom.togglePresetsBtn.addEventListener('click', () => dom.presetsWrapper.classList.toggle('collapsed'));
@@ -272,7 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
         [dom.saveConfigModal, dom.soundscapeModal, dom.addMusicModal].forEach(modal => { modal.addEventListener('click', e => { if (e.target.classList.contains('modal-overlay') || e.target.classList.contains('cancel-btn')) modal.classList.add('hidden'); }); const cancelBtn = modal.querySelector('.cancel-btn'); if (cancelBtn) cancelBtn.addEventListener('click', () => modal.classList.add('hidden')); });
         
         dom.confirmSaveConfigBtn.addEventListener('click', async () => { const name = dom.configNameInput.value.trim(); if (!name) return alert('请输入配置名称！'); const settings = { ...Object.fromEntries([...document.querySelectorAll('.console input, .console select')].map(el => [el.id, el.type === 'checkbox' ? el.checked : el.value])), kelvinSliderDefault: dom.kelvinSliderDefault.value, kelvinSliderMin: dom.kelvinSliderMin.value, kelvinSliderMax: dom.kelvinSliderMax.value, }; try { await apiCall('/api/controlsets', 'POST', { name, settings }); dom.saveConfigModal.classList.add('hidden'); renderConfigList(); } catch(err) { alert(`保存失败: ${err.message}`)}; });
-        const openSoundscapeModal = (isEditing) => { dom.soundscapeModal.dataset.isEditing = isEditing; const currentName = dom.soundscapeSelect.value; const currentSoundscape = state.soundscapes.find(s => s.name === currentName); dom.soundscapeModalTitle.textContent = isEditing ? `修改声景: ${currentName}` : '创建新声景'; dom.soundscapeNameInput.value = isEditing ? currentName : ''; dom.soundscapeNameInput.disabled = isEditing && currentSoundscape?.is_global; dom.mainTrackSelect.value = state.mainAudioFile || ''; dom.auxTrackSelect.value = state.auxAudioFile || ''; dom.soundscapeModal.classList.remove('hidden'); };
+        const openSoundscapeModal = (isEditing) => { dom.soundscapeModal.dataset.isEditing = isEditing; const currentName = dom.soundscapeSelect.value; const currentSoundscape = state.soundscapes.find(s => s.name === currentName); dom.soundscapeModalTitle.textContent = isEditing ? `修改声景: ${currentName}` : '创建新声景'; dom.soundscapeNameInput.value = isEditing ? currentName : ''; dom.soundscapeNameInput.disabled = isEditing && currentSoundscape?.is_global; dom.mainTrackSelect.value = state.mainAudioFile ? state.mainAudioFile.name : ''; dom.auxTrackSelect.value = state.auxAudioFile ? state.auxAudioFile.name : ''; dom.soundscapeModal.classList.remove('hidden'); };
         dom.addSoundscapeBtn.addEventListener('click', () => openSoundscapeModal(false));
         dom.editMainTrackBtn.addEventListener('click', () => openSoundscapeModal(true));
         dom.editAuxTrackBtn.addEventListener('click', () => openSoundscapeModal(true));
@@ -283,7 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.auxAudioUpload.addEventListener('change', (e) => handleUpload(e.target.files[0], 'plussound'));
         
         dom.addMusicBtn.addEventListener('click', () => dom.addMusicModal.classList.remove('hidden'));
-        dom.openGeneratorBtn.addEventListener('click', () => { alert('音乐生成功能即将推出！'); });
+        dom.openGeneratorBtn.addEventListener('click', () => { window.location.href = '/generator.html'; });
     }
 
     async function initializeApp() {

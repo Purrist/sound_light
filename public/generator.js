@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- 1. STATE AND DOM ---
     const state = {
         tempFilename: null,
         trackType: null,
@@ -6,15 +7,19 @@ document.addEventListener('DOMContentLoaded', () => {
         animationFrameId: null,
     };
     const dom = {
+        // Library Panel
         mainAudioList: document.getElementById('mainAudioList'),
         auxAudioList: document.getElementById('auxAudioList'),
         mixElementsList: document.getElementById('mixElementsList'),
+        // Tab Controls
         tabButtons: document.querySelectorAll('.tab-button'),
         tabContents: document.querySelectorAll('.tab-content'),
+        // Main Track Generator Controls
         noiseDuration: document.getElementById('noiseDuration'),
         toneSlider: document.getElementById('toneSlider'),
         widthSlider: document.getElementById('widthSlider'),
         generateMainBtn: document.getElementById('generateMainBtn'),
+        // Preview Panel Controls
         previewLight: document.getElementById('preview-light-background'),
         previewText: document.getElementById('preview-guide-text'),
         previewAudio: document.getElementById('previewAudio'),
@@ -23,9 +28,12 @@ document.addEventListener('DOMContentLoaded', () => {
         previewMinVol: document.getElementById('previewMinVol'),
         previewMaxVol: document.getElementById('previewMaxVol'),
         saveTrackBtn: document.getElementById('saveTrackBtn'),
+        // A new element to show the temp filename
+        previewFilenameDisplay: null 
     };
     let audioCtx, gainNode, sourceNode;
 
+    // --- 2. API HELPER ---
     async function apiCall(url, method = 'POST', body = null) {
         try {
             const options = { method, headers: { 'Content-Type': 'application/json' } };
@@ -43,6 +51,8 @@ document.addEventListener('DOMContentLoaded', () => {
             throw error;
         }
     }
+
+    // --- 3. CORE FUNCTIONS ---
 
     async function loadLibrary() {
         try {
@@ -81,21 +91,25 @@ document.addEventListener('DOMContentLoaded', () => {
     async function generateMainTrack() {
         dom.generateMainBtn.textContent = '生成中...';
         dom.generateMainBtn.disabled = true;
+        resetPreview();
         try {
             const params = {
                 duration_s: parseInt(dom.noiseDuration.value),
                 tone_cutoff_hz: parseInt(dom.toneSlider.value),
                 stereo_width: parseFloat(dom.widthSlider.value),
-                volume_db: -6, fade_in_ms: 1000, fade_out_ms: 2000
+                volume_db: -6,
+                fade_in_ms: 1000,
+                fade_out_ms: 2000
             };
             const result = await apiCall('/api/generate/main-noise', 'POST', params);
             state.tempFilename = result.filename;
             state.trackType = 'mainsound';
-            dom.previewAudio.src = `/media/shared/mainsound/${result.filename}`;
+            dom.previewAudio.src = `/media/mainsound/${encodeURIComponent(result.filename)}`;
             dom.previewToggleBtn.disabled = false;
             dom.saveTrackBtn.disabled = false;
+            dom.previewFilenameDisplay.textContent = `预览: ${result.filename}`;
         } catch (error) {
-            // Error is already alerted in apiCall
+            dom.previewFilenameDisplay.textContent = '生成失败!';
         } finally {
             dom.generateMainBtn.textContent = '重新生成';
             dom.generateMainBtn.disabled = false;
@@ -133,14 +147,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         dom.previewToggleBtn.addEventListener('click', () => {
-            if (audioCtx && audioCtx.state === 'closed') {
-                audioCtx = null;
-            }
+            if (audioCtx && audioCtx.state === 'closed') { audioCtx = null; }
             if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                sourceNode = audioCtx.createMediaElementSource(dom.previewAudio);
-                gainNode = audioCtx.createGain();
-                sourceNode.connect(gainNode).connect(audioCtx.destination);
+                try {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    sourceNode = audioCtx.createMediaElementSource(dom.previewAudio);
+                    gainNode = audioCtx.createGain();
+                    sourceNode.connect(gainNode).connect(audioCtx.destination);
+                } catch (e) {
+                    console.error("Error setting up AudioContext:", e);
+                    alert("无法初始化音频预览。请确保您已点击生成按钮。");
+                    return;
+                }
             }
             if (state.isPlaying) {
                 state.isPlaying = false;
@@ -150,7 +168,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 state.isPlaying = true;
                 if(audioCtx.state === 'suspended') audioCtx.resume();
-                dom.previewAudio.play();
+                dom.previewAudio.play().catch(e => {
+                    console.error("Preview play failed:", e);
+                    state.isPlaying = false;
+                });
                 dom.previewToggleBtn.textContent = '❚❚ 暂停';
                 lastFrameTime = performance.now();
                 requestAnimationFrame(previewLoop);
@@ -161,7 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function saveTrack() {
         const defaultName = state.tempFilename
             .replace('temp_', '噪音_')
-            .replace(/\.wav$/, '.mp3');
+            .replace(/_\d+\.wav$/, '.wav');
         const final_filename = prompt("请输入新音频的名称:", defaultName);
         if (final_filename && state.tempFilename) {
             dom.saveTrackBtn.disabled = true;
@@ -174,11 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 alert('音频已成功保存到音乐库！');
                 loadLibrary();
-                state.tempFilename = null;
-                state.trackType = null;
-                dom.saveTrackBtn.disabled = true;
-                dom.previewToggleBtn.disabled = true;
-                dom.previewAudio.src = '';
+                resetPreview();
             } catch (error) {
                 dom.saveTrackBtn.disabled = false;
             } finally {
@@ -186,8 +203,26 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
+    
+    function resetPreview() {
+        if(state.isPlaying) {
+            dom.previewToggleBtn.click();
+        }
+        state.tempFilename = null;
+        state.trackType = null;
+        dom.saveTrackBtn.disabled = true;
+        dom.previewToggleBtn.disabled = true;
+        dom.previewAudio.src = '';
+        dom.previewFilenameDisplay.textContent = '';
+        dom.previewText.textContent = '预览';
+    }
 
     function initialize() {
+        // Create the preview filename display element dynamically
+        dom.previewFilenameDisplay = document.createElement('div');
+        dom.previewFilenameDisplay.className = 'preview-filename';
+        dom.previewLight.parentElement.appendChild(dom.previewFilenameDisplay);
+
         loadLibrary();
         setupTabs();
         setupPreview();

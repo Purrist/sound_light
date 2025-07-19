@@ -80,15 +80,13 @@ def create_app():
         global_path = get_global_path(subfolder)
         if os.path.exists(global_path):
             for f in os.listdir(global_path):
-                if f.endswith('.json'):
-                    results.append({'name': f.replace('.json', ''), 'is_global': True})
+                if f.endswith('.json'): results.append({'name': f.replace('.json', ''), 'is_global': True})
         user_path = get_user_config_path(subfolder)
         if user_path and os.path.exists(user_path):
             user_files = {f.replace('.json', '') for f in os.listdir(user_path) if f.endswith('.json')}
             global_names = {item['name'] for item in results}
             for name in user_files:
-                if name not in global_names:
-                    results.append({'name': name, 'is_global': False})
+                if name not in global_names: results.append({'name': name, 'is_global': False})
         return sorted(results, key=lambda x: x['name'])
 
     def get_combined_audio_files(subfolder):
