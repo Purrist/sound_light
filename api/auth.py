@@ -6,8 +6,6 @@ from .extensions import db
 
 auth = Blueprint('auth', __name__, url_prefix='/auth')
 
-# This function is now part of the application context, not a simple 'before_request'
-# This ensures g.user is set correctly for all blueprints.
 @auth.before_app_request
 def before_request():
     g.user = current_user
@@ -29,7 +27,6 @@ def register():
     db.session.add(new_user)
     db.session.commit()
 
-    # CRITICAL CHANGE: Import the variable needed only when this function runs.
     from .app import USER_DATA_ROOT
     user_dir = os.path.join(USER_DATA_ROOT, username)
     try:
@@ -53,7 +50,8 @@ def login():
         return jsonify({'error': '用户名或密码无效'}), 401
 
     login_user(user, remember=True)
-    return jsonify({'message': '登录成功', 'username': user.username})
+    # KEY CHANGE: Add 'is_admin' to the login response
+    return jsonify({'message': '登录成功', 'username': user.username, 'is_admin': user.is_admin})
 
 @auth.route('/logout', methods=['POST'])
 @login_required
@@ -64,5 +62,6 @@ def logout():
 @auth.route('/status')
 def status():
     if current_user.is_authenticated:
-        return jsonify({'logged_in': True, 'username': current_user.username})
+        # KEY CHANGE: Add 'is_admin' to the status response
+        return jsonify({'logged_in': True, 'username': current_user.username, 'is_admin': current_user.is_admin})
     return jsonify({'logged_in': False})
