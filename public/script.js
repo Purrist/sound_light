@@ -129,7 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 li.querySelector('.default-btn').addEventListener('click', async () => { await apiCall('/api/controlsets/default', 'POST', { name: item.name }); renderConfigList(); });
                 li.querySelector('.delete-btn').addEventListener('click', async () => { if (confirm(`确定删除配置 "${item.name}"?`)) { try { await apiCall('/api/controlsets', 'DELETE', { name: item.name }); await renderConfigList(); } catch (error) { alert(`删除失败: ${error.message}`); } } });
                 dom.configList.appendChild(li);
-});
+            });
         } catch (e) { console.error("Failed to render config list:", e); }
     }
 
@@ -218,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (file) {
                         let path;
                         if (isGlobal) {
-                            path = `${CDN_BASE_URL}/static/${type}/${file}`;
+                            path = `${CDN_BASE_URL}/static/${type}/${encodeURIComponent(file)}`;
                         } else {
                             path = `/media/${state.username}/${type}/${encodeURIComponent(file)}`;
                         }
