@@ -11,6 +11,8 @@ from flask_migrate import Migrate
 from flask_login import login_required, current_user
 import getpass
 from urllib.parse import unquote
+from flask import make_response
+import mimetypes # 用于猜测文件类型
 
 # --- Path Definitions ---
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -273,23 +275,53 @@ def create_app():
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
-        # 优先服务 /public 目录下的静态文件，如 style.css, script.js
+        # 优先服务 /public 目录下的静态文件
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
 
+        # 处理用户上传文件的核心逻辑
         if hasattr(g, 'user') and g.user.is_authenticated and path.startswith('static/user/'):
             parts = path.split('/')
             if len(parts) == 4:
                 _, _, track_type, raw_filename = parts
                 
-                # KEY CHANGE: Decode the filename from URL encoding back to Unicode
                 filename = unquote(raw_filename)
-                
                 user_folder_path = get_user_path(track_type)
-                
-                if user_folder_path and os.path.exists(os.path.join(user_folder_path, filename)):
-                    return send_from_directory(user_folder_path, filename)
-        
+                final_file_path = os.path.join(user_folder_path, filename)
+
+                # 检查文件是否存在
+                if user_folder_path and os.path.exists(final_file_path):
+                    try:
+                        # KEY CHANGE: Manually read and serve the file
+                        # 手动读取文件内容
+                        with open(final_file_path, 'rb') as f:
+                            file_content = f.read()
+                        
+                        # 创建一个 Flask 响应对象
+                        response = make_response(file_content)
+                        
+                        # 猜测文件的 MIME 类型 (比如 'audio/mpeg' for mp3)
+                        mimetype, _ = mimetypes.guess_type(final_file_path)
+                        if mimetype:
+                            response.headers.set('Content-Type', mimetype)
+                        
+                        # 告诉浏览器文件的大小
+                        response.headers.set('Content-Length', str(len(file_content)))
+                        
+                        # 允许浏览器缓存文件
+                        response.headers.set('Cache-Control', 'public, max-age=3600')
+
+                        # 返回这个手动构建的响应
+                        return response
+
+                    except Exception as e:
+                        app.logger.error(f"Error reading file {final_file_path}: {e}")
+                        return "Error serving file", 500
+            
+            # 如果经过以上逻辑还未返回，说明文件未找到
+            return "File not found", 404
+
+        # 对于所有其他未匹配的路径，返回主页
         return send_from_directory(app.static_folder, 'index.html')
             
     @app.cli.command("set-admin")
