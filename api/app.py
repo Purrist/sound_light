@@ -1,8 +1,8 @@
 import os
 import json
 import re
-from flask import Flask, jsonify, send_from_directory, request, g
-from urllib.parse import unquote
+from flask import Flask, jsonify, send_from_directory, request, g, abort
+from urllib.parse import quote, unquote
 from .extensions import db, login_manager
 from .models import User
 from .auth import auth as auth_blueprint
@@ -20,9 +20,11 @@ GLOBAL_STATIC_FOLDER = os.path.join(PUBLIC_FOLDER, 'static')
 USER_DATA_ROOT = os.path.join(INSTANCE_FOLDER, 'user_data')
 
 # --- Helper Functions ---
-def get_user_path(subfolder):
-    if hasattr(g, 'user') and g.user.is_authenticated:
-        path = os.path.join(USER_DATA_ROOT, g.user.username, subfolder)
+def get_user_path(subfolder, username=None):
+    # Allow specifying a username for admin access, otherwise use current logged in user
+    user = username if username else (g.user.username if hasattr(g, 'user') and g.user.is_authenticated else None)
+    if user:
+        path = os.path.join(USER_DATA_ROOT, user, subfolder)
         os.makedirs(path, exist_ok=True)
         return path
     return None
@@ -237,25 +239,36 @@ def create_app():
             return jsonify({'message': f'文件 {safe_filename} 删除成功'})
         return jsonify({'error': 'File not found or permission denied'}), 404
 
+    # --- NEW, DEDICATED ROUTE FOR SERVING USER FILES ---
+    @app.route('/media/<username>/<track_type>/<path:filename>')
+    @login_required
+    def serve_user_file(username, track_type, filename):
+        """
+        Securely serves files uploaded by users.
+        """
+        # SECURITY CHECK: Users can only access their own files. Admins can access anyone's.
+        if not current_user.is_admin and current_user.username != username:
+            abort(403) # Forbidden
+
+        if track_type not in ['mainsound', 'plussound']:
+            abort(404)
+
+        # Construct the absolute path to the user's directory
+        user_specific_path = get_user_path(track_type, username=username)
+
+        # Use send_from_directory for security and proper header handling
+        return send_from_directory(user_specific_path, filename)
+
+    # --- SIMPLIFIED SERVE ROUTE FOR FRONTEND ---
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
+        """
+        Serves the main frontend app and its static assets from the /public folder.
+        It no longer handles user file serving.
+        """
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
-
-        if hasattr(g, 'user') and g.user.is_authenticated and path.startswith('static/user/'):
-            try:
-                decoded_path = unquote(path, encoding='utf-8')
-            except Exception:
-                decoded_path = path
-
-            parts = decoded_path.split('/')
-            if len(parts) == 4:
-                _, _, track_type, filename = parts
-                user_folder_path = get_user_path(track_type)
-                final_file_path = os.path.join(user_folder_path, filename)
-                if user_folder_path and os.path.exists(final_file_path):
-                    return send_from_directory(user_folder_path, filename)
         
         return send_from_directory(app.static_folder, 'index.html')
             
