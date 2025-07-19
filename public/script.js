@@ -274,30 +274,77 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- User Actions ---
         dom.startStopBtn.addEventListener('click', () => {
-            if (state.mainAudioFile) {
-                let path;
-                if (state.mainAudioIsGlobal) {
-                    // Load global audio from the super-fast CDN
-                    path = `${CDN_BASE_URL}/static/mainsound/${state.mainAudioFile}`;
-                } else {
-                    // Load user-uploaded audio from the PythonAnywhere server (will be slower)
-                    path = `/static/user/mainsound/${state.mainAudioFile}`;
-                }
-                dom.mainAudio.src = path;
-                dom.mainAudio.play().catch(e => console.error("Main audio play failed:", e));
-            }
+            if (!state.isRunning) {
+                console.log("--- STARTING RUN ---");
+                console.time("Total Startup Time"); // 开始计时
 
-            if (dom.auxEnable.checked && state.auxAudioFile) {
-                let path;
-                if (state.auxAudioIsGlobal) {
-                    // Load global audio from the CDN
-                    path = `${CDN_BASE_URL}/static/plussound/${state.auxAudioFile}`;
-                } else {
-                    // Load user-uploaded audio from the server
-                    path = `/static/user/plussound/${state.auxAudioFile}`;
+                setupAudioContext();
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
                 }
-                dom.auxAudio.src = path;
-                dom.auxAudio.play().catch(e => console.error("Aux audio play failed:", e));
+
+                state.isRunning = true;
+                state.isPaused = false;
+                state.currentPhase = 'fadeIn';
+                state.startTime = performance.now();
+                lastFrameTime = 0;
+                dom.lightBg.style.transition = 'none';
+
+                const loadAndPlayAudio = (audioElement, file, isGlobal, type) => {
+                    if (file) {
+                        let path;
+                        if (isGlobal) {
+                            path = `${CDN_BASE_URL}/static/${type}/${file}`;
+                        } else {
+                            // 在本地，我们直接从 Flask 服务器加载用户音频
+                            const localApiBase = ''; // 本地运行时 API 前缀为空
+                            path = `${localApiBase}/static/user/${type}/${file}`;
+                        }
+                        console.log(`[${type}] Setting src to: ${path}`);
+                        
+                        audioElement.src = path;
+                        
+                        // KEY CHANGE: Wait for the audio to be ready before playing
+                        audioElement.addEventListener('canplaythrough', () => {
+                            console.log(`[${type}] Audio is ready. Calling play().`);
+                            audioElement.play().catch(e => console.error(`[${type}] Audio play() failed:`, e));
+                        }, { once: true }); // Use {once: true} so this listener only fires once
+
+                        console.log(`[${type}] Loading audio...`);
+                        audioElement.load(); // Explicitly tell the browser to load the new source
+                    }
+                };
+
+                loadAndPlayAudio(dom.mainAudio, state.mainAudioFile, state.mainAudioIsGlobal, 'mainsound');
+                if (dom.auxEnable.checked) {
+                    loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, state.auxAudioIsGlobal, 'plussound');
+                }
+
+                startRunTimer();
+                state.animationFrameId = requestAnimationFrame(mainLoop);
+                dom.startStopBtn.textContent = '暂停';
+                dom.startStopBtn.className = 'running';
+                console.timeEnd("Total Startup Time"); // 结束计时
+            
+            } else if (state.isPaused) {
+                // ... (暂停和继续的逻辑保持不变)
+                state.isPaused = false; 
+                if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                dom.mainAudio.play().catch(e => {}); 
+                dom.auxAudio.play().catch(e => {});
+                lastFrameTime = performance.now(); 
+                state.animationFrameId = requestAnimationFrame(mainLoop);
+                dom.startStopBtn.textContent = '暂停'; 
+                dom.startStopBtn.className = 'running';
+            } else {
+                // ...
+                state.isPaused = true; 
+                if(audioCtx) audioCtx.suspend();
+                dom.mainAudio.pause(); 
+                dom.auxAudio.pause();
+                cancelAnimationFrame(state.animationFrameId);
+                dom.startStopBtn.textContent = '继续'; 
+                dom.startStopBtn.className = 'paused';
             }
         });
         dom.resetBtn.addEventListener('click', () => { if(state.isRunning && !confirm("确定停止并重启?")) return; resetAll(); });

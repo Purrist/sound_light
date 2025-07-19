@@ -19,3 +19,4 @@ venv/
 # OS-specific files
 .DS_Store
 Thumbs.db
+api/__pycache__/app.cpython-311.pyc
