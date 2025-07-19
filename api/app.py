@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import shutil
 from flask import Flask, jsonify, send_from_directory, request, g, abort
 from urllib.parse import unquote
 from .extensions import db, login_manager
@@ -34,10 +35,6 @@ def get_global_path(subfolder):
     return path
 
 def secure_filename_custom(filename):
-    """
-    Custom secure_filename function that supports Unicode characters
-    but still prevents directory traversal attacks.
-    """
     filename = filename.replace('..', '').replace('/', '').replace('\\', '').replace(' ', '_')
     filename = re.sub(r'[^\w\s.-]', '', filename, flags=re.UNICODE)
     return filename.strip('_.- ')
@@ -46,7 +43,6 @@ def secure_filename_custom(filename):
 def create_app():
     app = Flask(__name__, instance_path=INSTANCE_FOLDER, static_folder=PUBLIC_FOLDER, static_url_path='')
     
-    # --- Configuration ---
     app.config.from_mapping(
         SECRET_KEY=os.environ.get('SECRET_KEY', 'a_very_secret_key_for_development_12345'),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
@@ -91,18 +87,23 @@ def create_app():
     def get_combined_audio_files(subfolder):
         audio_ext = ('.wav', '.mp3', '.ogg')
         results = []
+        # Add global files
         global_path = get_global_path(subfolder)
         if os.path.exists(global_path):
             for f in os.listdir(global_path):
                 if f.lower().endswith(audio_ext):
                     results.append({'name': f, 'is_global': True})
-        user_path = get_user_path(subfolder)
-        if user_path and os.path.exists(user_path):
-            user_files = {f for f in os.listdir(user_path) if f.lower().endswith(audio_ext)}
-            global_names = {item['name'] for item in results}
-            for name in user_files:
-                if name not in global_names:
-                    results.append({'name': name, 'is_global': False})
+        
+        # Add user-specific files
+        users = [d for d in os.listdir(USER_DATA_ROOT) if os.path.isdir(os.path.join(USER_DATA_ROOT, d))]
+        for user in users:
+            user_path = os.path.join(USER_DATA_ROOT, user, subfolder)
+            if os.path.exists(user_path):
+                for f in os.listdir(user_path):
+                    if f.lower().endswith(audio_ext):
+                        # Ensure no duplicates if a user file has the same name as a global one
+                        if not any(r['name'] == f for r in results):
+                            results.append({'name': f, 'is_global': False, 'username': user})
         return sorted(results, key=lambda x: x['name'])
 
     @app.route('/api/get-audio-files')
@@ -226,51 +227,71 @@ def create_app():
             return jsonify({'message': '文件上传成功', 'filename': clean_filename})
         return jsonify({'error': '文件上传失败'}), 500
 
-    @app.route('/api/delete-audio/<track_type>/<filename>', methods=['DELETE'])
+    @app.route('/api/delete-audio/<track_type>/<username>/<filename>', methods=['DELETE'])
     @login_required
-    def delete_audio(track_type, filename):
-        if track_type not in ['mainsound', 'plussound']: return jsonify({'error': '无效的音轨类型'}), 400
+    def delete_audio(track_type, username, filename):
+        if not current_user.is_admin and current_user.username != username:
+            abort(403)
+        if track_type not in ['mainsound', 'plussound']: abort(404)
+
         safe_filename = secure_filename_custom(filename)
-        path_to_check = get_global_path(track_type) if current_user.is_admin else get_user_path(track_type)
+        path_to_check = get_user_path(track_type, username=username)
         file_to_delete = os.path.join(path_to_check, safe_filename)
+        
         if os.path.exists(file_to_delete):
             os.remove(file_to_delete)
             return jsonify({'message': f'文件 {safe_filename} 删除成功'})
+        
+        # Admin can delete global files too, check if filename implies global
+        if current_user.is_admin:
+            global_file_path = os.path.join(get_global_path(track_type), safe_filename)
+            if os.path.exists(global_file_path):
+                os.remove(global_file_path)
+                return jsonify({'message': f'全局文件 {safe_filename} 删除成功'})
+
         return jsonify({'error': 'File not found or permission denied'}), 404
 
-    # --- NEW, DEDICATED ROUTE FOR SERVING USER FILES ---
+    @app.route('/api/audio/protect/<track_type>/<username>/<filename>', methods=['POST'])
+    @login_required
+    def protect_audio(track_type, username, filename):
+        if not current_user.is_admin: abort(403)
+        safe_filename = secure_filename_custom(filename)
+        source_path = os.path.join(USER_DATA_ROOT, username, track_type, safe_filename)
+        destination_path = os.path.join(get_global_path(track_type), safe_filename)
+        if os.path.exists(source_path):
+            shutil.move(source_path, destination_path)
+            return jsonify({'message': f'文件 {safe_filename} 已被保护为全局文件。'})
+        return jsonify({'error': '源文件未找到'}), 404
+
+    @app.route('/api/audio/unprotect/<track_type>/<filename>', methods=['POST'])
+    @login_required
+    def unprotect_audio(track_type, filename):
+        if not current_user.is_admin: abort(403)
+        safe_filename = secure_filename_custom(filename)
+        source_path = os.path.join(get_global_path(track_type), safe_filename)
+        destination_path = os.path.join(get_user_path(track_type), safe_filename)
+        if os.path.exists(source_path):
+            shutil.move(source_path, destination_path)
+            return jsonify({'message': f'文件 {safe_filename} 已取消保护并移入您的个人文件夹。'})
+        return jsonify({'error': '源文件未找到'}), 404
+
     @app.route('/media/<username>/<track_type>/<path:filename>')
     @login_required
     def serve_user_file(username, track_type, filename):
-        """
-        Securely serves files uploaded by users.
-        """
-        if not current_user.is_admin and current_user.username != username:
-            abort(403) # Forbidden
-        if track_type not in ['mainsound', 'plussound']:
-            abort(404)
-        
-        # Flask's path converter handles URL decoding, so filename is already Unicode
+        if not current_user.is_admin and current_user.username != username: abort(403)
+        if track_type not in ['mainsound', 'plussound']: abort(404)
         user_specific_path = get_user_path(track_type, username=username)
-        
         return send_from_directory(user_specific_path, filename)
 
-    # --- SIMPLIFIED SERVE ROUTE FOR FRONTEND ---
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
-        """
-        Serves the main frontend app and its static assets from the /public folder.
-        It no longer handles user file serving.
-        """
         if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
-        
         return send_from_directory(app.static_folder, 'index.html')
             
     @app.cli.command("set-admin")
     def set_admin_command():
-        """Creates a new admin user or promotes an existing user and sets their password."""
         username = input("Enter username to make admin: ")
         password = getpass.getpass("Enter a new password for this admin (leave blank to not change): ")
         user = User.query.filter_by(username=username).first()
