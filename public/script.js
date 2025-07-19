@@ -163,11 +163,55 @@ document.addEventListener('DOMContentLoaded', () => {
     function resetAll() { state.isRunning = false; state.isPaused = false; state.currentPhase = 'idle'; if (state.animationFrameId) cancelAnimationFrame(state.animationFrameId); stopRunTimer(); state.totalRunTime = 0; dom.mainAudio.pause(); dom.auxAudio.pause(); dom.mainAudio.src = ''; dom.auxAudio.src = ''; if (audioCtx) { mainGainNode.gain.setValueAtTime(0, audioCtx.currentTime); auxGainNode.gain.setValueAtTime(0, audioCtx.currentTime); } dom.lightBg.style.transition = 'background-color 0.5s'; dom.lightBg.style.backgroundColor = '#000'; dom.guideText.style.opacity = 0; dom.statusDashboard.classList.add('hidden'); dom.startStopBtn.textContent = '开始'; dom.startStopBtn.className = ''; }
     
     function setupAppEventListeners() {
-        function setupMasterRangeBinding(kelvinInput, hexInput, rangeKey) { kelvinInput.addEventListener('change', () => { masterRange[rangeKey].k = parseInt(kelvinInput.value); masterRange[rangeKey].hex = kelvinToHex(kelvinInput.value); hexInput.value = masterRange[rangeKey].hex; kelvinInput.style.backgroundColor = masterRange[rangeKey].hex; updateMasterGradient(); }); hexInput.addEventListener('input', () => { masterRange[rangeKey].hex = hexInput.value; masterRange[rangeKey].k = hexToKelvin(hexInput.value); kelvinInput.value = masterRange[rangeKey].k; kelvinInput.style.backgroundColor = masterRange[rangeKey].hex; updateMasterGradient(); }); }
-        function setupValueBinding(slider, numberDisplay, hiddenColorInput) { slider.addEventListener('input', () => { const currentKelvin = parseInt(slider.value); const startK = parseInt(masterRange.start.k); const endK = parseInt(masterRange.end.k); const minK = Math.min(startK, endK); const maxK = Math.max(startK, endK); const clampedKelvin = Math.max(minK, Math.min(maxK, currentKelvin)); const totalRange = endK - startK; const progress = totalRange === 0 ? 0.5 : (clampedKelvin - startK) / totalRange; const newHex = interpolateColor(masterRange.start.hex, masterRange.end.hex, progress); numberDisplay.value = clampedKelvin; slider.value = clampedKelvin; numberDisplay.style.backgroundColor = newHex; if(hiddenColorInput) hiddenColorInput.value = newHex; }); numberDisplay.addEventListener('change', () => { slider.value = numberDisplay.value; slider.dispatchEvent(new Event('input', { bubbles: true })); }); }
-        setupMasterRangeBinding(dom.masterKelvinStart, dom.masterHexStart, 'start'); setupMasterRangeBinding(dom.masterKelvinEnd, dom.masterHexEnd, 'end');
-        setupValueBinding(dom.kelvinSliderDefault, dom.kelvinDefault, dom.defaultColor); setupValueBinding(dom.kelvinSliderMin, dom.kelvinMin, dom.warmColor); setupValueBinding(dom.kelvinSliderMax, dom.kelvinMax, dom.coolColor);
+        // --- 内部辅助函数，专门用于绑定颜色控件 ---
+        function setupMasterRangeBinding(kelvinInput, hexInput, rangeKey) {
+            kelvinInput.addEventListener('change', () => {
+                masterRange[rangeKey].k = parseInt(kelvinInput.value);
+                masterRange[rangeKey].hex = kelvinToHex(kelvinInput.value);
+                hexInput.value = masterRange[rangeKey].hex;
+                kelvinInput.style.backgroundColor = masterRange[rangeKey].hex;
+                updateMasterGradient();
+            });
+            hexInput.addEventListener('input', () => {
+                masterRange[rangeKey].hex = hexInput.value;
+                masterRange[rangeKey].k = hexToKelvin(hexInput.value);
+                kelvinInput.value = masterRange[rangeKey].k;
+                kelvinInput.style.backgroundColor = masterRange[rangeKey].hex;
+                updateMasterGradient();
+            });
+        }
 
+        function setupValueBinding(slider, numberDisplay, hiddenColorInput) {
+            slider.addEventListener('input', () => {
+                const currentKelvin = parseInt(slider.value);
+                const startK = parseInt(masterRange.start.k);
+                const endK = parseInt(masterRange.end.k);
+                const minK = Math.min(startK, endK);
+                const maxK = Math.max(startK, endK);
+                const clampedKelvin = Math.max(minK, Math.min(maxK, currentKelvin));
+                const totalRange = endK - startK;
+                const progress = totalRange === 0 ? 0.5 : (clampedKelvin - startK) / totalRange;
+                const newHex = interpolateColor(masterRange.start.hex, masterRange.end.hex, progress);
+                
+                numberDisplay.value = clampedKelvin;
+                slider.value = clampedKelvin;
+                numberDisplay.style.backgroundColor = newHex;
+                if(hiddenColorInput) hiddenColorInput.value = newHex;
+            });
+            numberDisplay.addEventListener('change', () => {
+                slider.value = numberDisplay.value;
+                slider.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+        }
+
+        // --- 核心逻辑：执行绑定 ---
+        setupMasterRangeBinding(dom.masterKelvinStart, dom.masterHexStart, 'start');
+        setupMasterRangeBinding(dom.masterKelvinEnd, dom.masterHexEnd, 'end');
+        setupValueBinding(dom.kelvinSliderDefault, dom.kelvinDefault, dom.defaultColor);
+        setupValueBinding(dom.kelvinSliderMin, dom.kelvinMin, dom.warmColor);
+        setupValueBinding(dom.kelvinSliderMax, dom.kelvinMax, dom.coolColor);
+
+        // --- 其他所有事件监听器 ---
         dom.startStopBtn.addEventListener('click', () => {
             if (!state.isRunning) {
                 setupAudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -177,8 +221,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const loadAndPlayAudio = (audioElement, fileObj, type) => {
                     if (fileObj && fileObj.name) {
-                        // The URL is ALWAYS the same simple structure.
-                        const path = `/media/${type}/${encodeURIComponent(fileObj.name)}`;
+                        let path;
+                        if (fileObj.is_global && fileObj.uploader === 'system') {
+                            path = `/static-media/${type}/${encodeURIComponent(fileObj.name)}`;
+                        } else {
+                            path = `/media/${type}/${encodeURIComponent(fileObj.name)}`;
+                        }
                         console.log(`Loading audio from: ${path}`);
                         audioElement.src = path;
                         audioElement.load();
@@ -186,9 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 };
                 loadAndPlayAudio(dom.mainAudio, state.mainAudioFile, 'mainsound');
-                if (dom.auxEnable.checked) {
-                    loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, 'plussound');
-                }
+                if (dom.auxEnable.checked) { loadAndPlayAudio(dom.auxAudio, state.auxAudioFile, 'plussound'); }
                 startRunTimer();
                 state.animationFrameId = requestAnimationFrame(mainLoop);
                 dom.startStopBtn.textContent = '暂停'; dom.startStopBtn.className = 'running';
@@ -219,7 +265,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.addSoundscapeBtn.addEventListener('click', () => openSoundscapeModal(false));
         dom.editMainTrackBtn.addEventListener('click', () => openSoundscapeModal(true));
         dom.editAuxTrackBtn.addEventListener('click', () => openSoundscapeModal(true));
-        dom.confirmSaveSoundscapeBtn.addEventListener('click', async () => { const isEditing = dom.soundscapeModal.dataset.isEditing === 'true'; const name = dom.soundscapeNameInput.value.trim(); if (!name) return alert('请输入声景名称！'); const main = dom.mainTrackSelect.value; const aux = dom.auxTrackSelect.value; if (!main) return alert('请至少选择一个主轨音频！'); const payload = { name, main, aux }; try { await apiCall('/api/soundsets', 'POST', payload); dom.soundscapeModal.classList.add('hidden'); await renderSoundscapeList(); dom.soundscapeSelect.value = name; dom.soundscapeSelect.dispatchEvent(new Event('change')); } catch (error) { alert(`保存声景失败: ${error.message}`); } });
+        dom.confirmSaveSoundscapeBtn.addEventListener('click', async () => { const isEditing = dom.soundscapeModal.dataset.isEditing === 'true'; const name = dom.soundscapeNameInput.value.trim(); if (!name) return alert('请输入声景名称！'); const main = dom.mainTrackSelect.value; const aux = dom.auxTrackSelect.value; if (!main) return alert('请至少选择一个主轨音频！'); const payload = { name, main, aux }; try { await apiCall('/api/soundsets', 'POST', payload); dom.soundscapeModal.classList.add('hidden'); await renderSoundscapeList(); dom.soundscapeSelect.value = name; dom.soundscapeSelect.dispatchEvent(new Event('change')); } catch (error) { alert(`保存失败: ${error.message}`); } });
         
         const handleUpload = async (file, trackType) => { if (!file) return; const formData = new FormData(); formData.append('file', file); try { const response = await fetch(`/api/upload/${trackType}`, { method: 'POST', body: formData }); const result = await response.json(); if (!response.ok) throw new Error(result.error); await renderAudioLists(); } catch (error) { alert(`上传失败: ${error.message}`); } dom.addMusicModal.classList.add('hidden'); };
         dom.mainAudioUpload.addEventListener('change', (e) => handleUpload(e.target.files[0], 'mainsound'));
@@ -228,7 +274,6 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.addMusicBtn.addEventListener('click', () => dom.addMusicModal.classList.remove('hidden'));
         dom.openGeneratorBtn.addEventListener('click', () => { window.location.href = '/generator.html'; });
     }
-
     async function initializeApp() {
         buildKelvinLookup();
         setupAppEventListeners();
