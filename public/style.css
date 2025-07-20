@@ -162,3 +162,14 @@ select { flex-grow: 1; padding: 6px; background: var(--input-bg); color: var(--t
 .preset-list li {
     padding: 7px 10px; /* 微调内边距 */
 }
+/* Styles for the new tags */
+.preset-list li.tag-base .preset-name::before { content: '📦'; margin-right: 8px; } /* Base/Built-in */
+.preset-list li.tag-global .preset-name::before { content: '🌐'; margin-right: 8px; } /* Global/Protected */
+.preset-list li.tag-normal .preset-name::before { content: '👤'; margin-right: 8px; } /* Normal/User */
+
+em.owner-tag {
+    font-size: 0.8em;
+    color: #888;
+    margin-left: 5px;
+    font-style: normal;
+}

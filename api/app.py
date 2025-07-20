@@ -43,13 +43,15 @@ def secure_filename_custom(filename):
 
 # --- Application Factory ---
 def create_app():
-    app = Flask(__name__, instance_path=INSTANCE_FOLDER, static_folder=PUBLIC_FOLDER, static_url_path='')   
+    app = Flask(__name__, instance_path=INSTANCE_FOLDER, static_folder=PUBLIC_FOLDER, static_url_path='')
+    
     app.config.from_mapping(
         SECRET_KEY=os.environ.get('SECRET_KEY', 'a_very_secret_key_for_development_12345'),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         MAX_CONTENT_LENGTH=16 * 1024 * 1024
     )
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(INSTANCE_FOLDER, 'database.db')
+    
     try:
         os.makedirs(app.instance_path, exist_ok=True)
         os.makedirs(AUDIO_STORAGE_ROOT, exist_ok=True)
@@ -66,26 +68,33 @@ def create_app():
         global_path = get_built_in_static_path(subfolder)
         if os.path.exists(global_path):
             for f in os.listdir(global_path):
-                if f.endswith('.json'): results.append({'name': f.replace('.json', ''), 'is_global': True})
+                if f.endswith('.json'): results.append({'name': f.replace('.json', ''), 'is_global': True, 'uploader': 'system'})
         user_path = get_user_config_path(subfolder)
         if user_path and os.path.exists(user_path):
             user_files = {f.replace('.json', '') for f in os.listdir(user_path) if f.endswith('.json')}
             global_names = {item['name'] for item in results}
             for name in user_files:
-                if name not in global_names: results.append({'name': name, 'is_global': False})
+                if name not in global_names: results.append({'name': name, 'is_global': False, 'uploader': current_user.username})
         return sorted(results, key=lambda x: x['name'])
 
     def get_combined_audio_files(subfolder):
         results = []
-        all_audio = AudioFile.query.filter_by(track_type=subfolder).all()
-        for audio in all_audio:
-            results.append({'name': audio.filename, 'is_global': audio.is_global, 'uploader': audio.uploader.username})
+        # 1. Add "base" files from GitHub repo.
+        built_in_path = get_built_in_static_path(subfolder)
+        if os.path.exists(built_in_path):
+            for f in os.listdir(built_in_path):
+                if f.lower().endswith(('.wav', '.mp3', '.ogg')):
+                    results.append({'name': f, 'tag': 'base', 'uploader': '内置'})
         
-        github_files_path = os.path.join(get_built_in_static_path(subfolder))
-        if os.path.exists(github_files_path):
-            for f in os.listdir(github_files_path):
-                if f.lower().endswith(('.wav', '.mp3', '.ogg')) and not any(r['name'] == f for r in results):
-                    results.append({'name': f, 'is_global': True, 'uploader': 'system'})
+        # 2. Add "normal" and "global" files from the database.
+        all_db_audio = AudioFile.query.filter_by(track_type=subfolder).all()
+        for audio in all_db_audio:
+            if not any(r['name'] == audio.filename for r in results):
+                results.append({
+                    'name': audio.filename,
+                    'tag': 'global' if audio.is_global else 'normal',
+                    'uploader': audio.uploader.username
+                })
         return sorted(results, key=lambda x: x['name'])
 
     @app.route('/api/get-audio-files')
@@ -206,26 +215,27 @@ def create_app():
         file = request.files['file']
         if file.filename == '': return jsonify({'error': '没有选择文件'}), 400
         clean_filename = secure_filename_custom(file.filename)
-        if AudioFile.query.filter_by(filename=clean_filename, track_type=track_type).first():
+        if AudioFile.query.filter_by(filename=clean_filename, track_type=track_type).first() or os.path.exists(os.path.join(get_built_in_static_path(track_type), clean_filename)):
             return jsonify({'error': '已存在同名音频文件'}), 409
         upload_path = get_audio_storage_path(track_type)
         file.save(os.path.join(upload_path, clean_filename))
-        new_audio = AudioFile(filename=clean_filename, track_type=track_type, is_global=current_user.is_admin, user_id=current_user.id)
-        db.session.add(new_audio)
-        db.session.commit()
+        new_audio = AudioFile(filename=clean_filename, track_type=track_type, is_global=False, user_id=current_user.id)
+        db.session.add(new_audio); db.session.commit()
         return jsonify({'message': '文件上传成功', 'filename': clean_filename})
 
     @app.route('/api/delete-audio/<track_type>/<filename>', methods=['DELETE'])
     @login_required
     def delete_audio(track_type, filename):
         safe_filename = secure_filename_custom(filename)
+        if os.path.exists(os.path.join(get_built_in_static_path(track_type), safe_filename)):
+            return jsonify({'error': '无法通过API删除内置的基础文件'}), 403
         audio_file = AudioFile.query.filter_by(filename=safe_filename, track_type=track_type).first()
         if not audio_file: return jsonify({'error': '文件元数据未找到'}), 404
         if audio_file.is_global and not current_user.is_admin: return jsonify({'error': '无权删除受保护的文件'}), 403
+        
         file_path = os.path.join(get_audio_storage_path(track_type), safe_filename)
         if os.path.exists(file_path): os.remove(file_path)
-        db.session.delete(audio_file)
-        db.session.commit()
+        db.session.delete(audio_file); db.session.commit()
         return jsonify({'message': f'文件 {safe_filename} 已被删除'})
 
     @app.route('/api/audio/protect/<track_type>/<filename>', methods=['POST'])
@@ -235,8 +245,7 @@ def create_app():
         safe_filename = secure_filename_custom(filename)
         audio_file = AudioFile.query.filter_by(filename=safe_filename, track_type=track_type).first()
         if audio_file:
-            audio_file.is_global = True
-            db.session.commit()
+            audio_file.is_global = True; db.session.commit()
             return jsonify({'message': f'文件 {safe_filename} 已被保护。'})
         return jsonify({'error': '文件元数据未找到'}), 404
         
@@ -247,8 +256,7 @@ def create_app():
         safe_filename = secure_filename_custom(filename)
         audio_file = AudioFile.query.filter_by(filename=safe_filename, track_type=track_type).first()
         if audio_file:
-            audio_file.is_global = False
-            db.session.commit()
+            audio_file.is_global = False; db.session.commit()
             return jsonify({'message': f'文件 {safe_filename} 已取消保护。'})
         return jsonify({'error': '文件元数据未找到'}), 404
         
@@ -259,16 +267,12 @@ def create_app():
             params = request.get_json() or {}
             noise_segment = generate_noise(
                 duration_s=params.get('duration_s', 10),
-                color='pink',
                 tone_cutoff_hz=params.get('tone_cutoff_hz', 8000),
                 resonance=params.get('resonance', 1.0),
                 stereo_width=params.get('stereo_width', 0.8)
             )
-            # KEY FIX: Call the helper function to get the STRING path first
             save_path = get_audio_storage_path('mainsound')
-            # Then pass the STRING path to the processing function
             temp_filename = process_and_save_track(noise_segment, 'mainsound', save_path)
-            
             return jsonify({"success": True, "filename": temp_filename})
         except Exception as e:
             app.logger.error(f"Error generating noise: {e}", exc_info=True)
@@ -277,35 +281,33 @@ def create_app():
     @app.route('/api/audio/save-temp', methods=['POST'])
     @login_required
     def save_temp_audio():
-        data = request.get_json()
-        temp_filename = data.get('temp_filename')
-        final_filename = secure_filename_custom(data.get('final_filename'))
-        track_type = data.get('track_type')
+        data = request.json
+        temp_filename = data.get('temp_filename'); final_filename = secure_filename_custom(data.get('final_filename')); track_type = data.get('track_type')
         if not all([temp_filename, final_filename, track_type]): return jsonify({"error": "缺少必要参数"}), 400
-        if AudioFile.query.filter_by(filename=final_filename, track_type=track_type).first(): return jsonify({'error': '已存在同名音频文件'}), 409
+        if AudioFile.query.filter_by(filename=final_filename, track_type=track_type).first() or os.path.exists(os.path.join(get_built_in_static_path(track_type), final_filename)):
+            return jsonify({'error': '已存在同名音频文件'}), 409
         
         temp_path = os.path.join(get_audio_storage_path(track_type), temp_filename)
         final_path = os.path.join(get_audio_storage_path(track_type), final_filename)
         if os.path.exists(temp_path):
             os.rename(temp_path, final_path)
             new_audio = AudioFile(filename=final_filename, track_type=track_type, is_global=False, user_id=current_user.id)
-            db.session.add(new_audio)
-            db.session.commit()
+            db.session.add(new_audio); db.session.commit()
             return jsonify({"success": True, "message": "音频已成功保存到音乐库"})
         return jsonify({"error": "临时文件未找到"}), 404
 
     # --- FILE SERVING ROUTES ---
-    @app.route('/media/<track_type>/<path:filename>')
-    def serve_audio_file(track_type, filename):
+    @app.route('/media/database/<track_type>/<path:filename>')
+    def serve_database_audio_file(track_type, filename):
         if track_type not in ['mainsound', 'plussound', 'mix_elements']: abort(404)
         audio_path = get_audio_storage_path(track_type)
         return send_from_directory(audio_path, filename)
     
     @app.route('/static-media/<track_type>/<path:filename>')
-    def serve_global_file(track_type, filename):
+    def serve_static_audio_file(track_type, filename):
         if track_type not in ['mainsound', 'plussound', 'mix_elements']: abort(404)
-        global_path = get_built_in_static_path(track_type)
-        return send_from_directory(global_path, filename)
+        static_path = get_built_in_static_path(track_type)
+        return send_from_directory(static_path, filename)
 
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')

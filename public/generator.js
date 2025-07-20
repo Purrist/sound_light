@@ -1,5 +1,3 @@
-// public/generator.js (最终修复版 4.2)
-
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. STATE AND DOM ---
     const state = {
@@ -10,12 +8,14 @@ document.addEventListener('DOMContentLoaded', () => {
         trackType: null,
         isPlaying: false,
         animationFrameId: null,
+        audioFiles: { mainsound: [], plussound: [], mix_elements: [] },
     };
     const dom = {
         libraryPanel: document.querySelector('.library-panel'),
         mainAudioList: document.getElementById('mainAudioList'),
         auxAudioList: document.getElementById('auxAudioList'),
         mixElementsList: document.getElementById('mixElementsList'),
+        mixElementUpload: document.getElementById('mixElementUpload'),
         tabButtons: document.querySelectorAll('.tab-button'),
         tabContents: document.querySelectorAll('.tab-content'),
         noiseDuration: document.getElementById('noiseDuration'),
@@ -36,13 +36,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let audioCtx, gainNode, sourceNode;
 
     // --- 2. API HELPER ---
-    // KEY FIX: Change the default method from 'POST' to 'GET'
     async function apiCall(url, method = 'GET', body = null) {
         try {
-            const options = { method, headers: { 'Content-Type': 'application/json' } };
-            if (body) options.body = JSON.stringify(body);
-            // GET requests should not have a body in options, but most browsers handle it.
-            // For robustness, we could remove it, but this is fine for now.
+            const options = { method, headers: {} };
+            if (body) {
+                options.body = JSON.stringify(body);
+                options.headers['Content-Type'] = 'application/json';
+            }
             const response = await fetch(url, options);
             const responseData = await response.json().catch(() => null);
             if (!response.ok) {
@@ -59,69 +59,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 3. CORE FUNCTIONS ---
     async function renderAudioLists() {
-        console.log("Rendering library lists in generator...");
-        const audioFiles = await apiCall('/api/get-audio-files');
+        state.audioFiles = await apiCall('/api/get-audio-files');
         const populateList = (listElement, files, trackType) => {
             listElement.innerHTML = '';
             if (!files) return;
             files.forEach(file => {
                 const li = document.createElement('li');
-                li.className = file.is_global ? 'is-global' : 'is-user';
-                li.title = `上传者: ${file.uploader || 'system'}`;
+                li.className = `tag-${file.tag || (file.is_global ? 'global' : 'normal')}`;
+                li.title = `类型: ${file.tag || (file.is_global ? 'global' : 'normal')}, 上传者: ${file.uploader}`;
+
                 let actionButtons = '';
-                if (!file.is_global) {
-                    actionButtons += `<button class="delete-btn" title="删除">✕</button>`;
-                }
-                if (state.isAdmin) {
-                    if (file.is_global) {
-                        actionButtons += `<button class="delete-btn" title="删除受保护文件">✕</button>`;
-                        if (file.uploader !== 'system') {
-                            actionButtons += `<button class="unprotect-btn" title="取消保护">🔓</button>`;
+                if (file.tag !== 'base') {
+                    if (file.tag === 'normal' || (file.uploader === state.username && !file.is_global) ) {
+                        actionButtons += `<button class="delete-btn" title="删除">✕</button>`;
+                    }
+                    if (state.isAdmin) {
+                        if (file.tag === 'global' || file.is_global) {
+                            actionButtons += `<button class="delete-btn" title="删除受保护文件">✕</button>`;
+                            actionButtons += `<button class="unprotect-btn" title="解锁">🔓</button>`;
+                        } else {
+                            actionButtons += `<button class="protect-btn" title="锁定">🔒</button>`;
                         }
-                    } else {
-                        actionButtons += `<button class="protect-btn" title="保护 (设为全局)">🔒</button>`;
                     }
                 }
-                li.innerHTML = `<span class="preset-name">${file.name}</span><div class="preset-actions">${actionButtons}</div>`;
-                
+                const uploaderTag = file.uploader === '内置' ? '' : `(${file.uploader})`;
+                li.innerHTML = `<span class="preset-name">${file.name}</span><em class="owner-tag">${uploaderTag}</em><div class="preset-actions">${actionButtons}</div>`;
+
                 const deleteBtn = li.querySelector('.delete-btn');
-                if (deleteBtn) {
-                    deleteBtn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        if (confirm(`确定删除音频 "${file.name}"?`)) {
-                            try {
-                                await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE');
-                                await renderAudioLists();
-                            } catch (err) { alert(`删除失败: ${err.message}`); }
-                        }
-                    });
-                }
+                if (deleteBtn) { deleteBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (confirm(`确定删除音频 "${file.name}"?`)) { try { await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE'); await renderAudioLists(); } catch (err) { alert(`删除失败: ${err.message}`); } } }); }
                 const protectBtn = li.querySelector('.protect-btn');
-                if (protectBtn) {
-                    protectBtn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        try {
-                            await apiCall(`/api/audio/protect/${trackType}/${file.name}`, 'POST');
-                            await renderAudioLists();
-                        } catch (err) { alert(`操作失败: ${err.message}`); }
-                    });
-                }
+                if (protectBtn) { protectBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { await apiCall(`/api/audio/protect/${trackType}/${file.name}`, 'POST'); await renderAudioLists(); } catch (err) { alert(`操作失败: ${err.message}`); } }); }
                 const unprotectBtn = li.querySelector('.unprotect-btn');
-                if (unprotectBtn) {
-                    unprotectBtn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        try {
-                            await apiCall(`/api/audio/unprotect/${trackType}/${file.name}`, 'POST');
-                            await renderAudioLists();
-                        } catch (err) { alert(`操作失败: ${err.message}`); }
-                    });
-                }
+                if (unprotectBtn) { unprotectBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { await apiCall(`/api/audio/unprotect/${trackType}/${file.name}`, 'POST'); await renderAudioLists(); } catch (err) { alert(`操作失败: ${err.message}`); } }); }
+                
                 listElement.appendChild(li);
             });
         };
-        populateList(dom.mainAudioList, audioFiles.mainsound, 'mainsound');
-        populateList(dom.auxAudioList, audioFiles.plussound, 'plussound');
-        populateList(dom.mixElementsList, audioFiles.mix_elements, 'mix_elements');
+        populateList(dom.mainAudioList, state.audioFiles.mainsound, 'mainsound');
+        populateList(dom.auxAudioList, state.audioFiles.plussound, 'plussound');
+        populateList(dom.mixElementsList, state.audioFiles.mix_elements, 'mix_elements');
     }
 
     function setupTabs() {
@@ -151,7 +127,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.tempFilename = result.filename;
                 state.trackType = 'mainsound';
                 dom.previewInfo.textContent = `预览: ${result.filename}`;
-                dom.previewAudio.src = `/media/shared/mainsound/${encodeURIComponent(result.filename)}`;
+                // This creates a "temporary" file object for the player
+                const tempFileObj = { name: result.filename, uploader: state.username, tag: 'normal' };
+                loadAndPlayAudio(dom.previewAudio, tempFileObj, 'mainsound', true); // true for isPreview
                 dom.previewToggleBtn.disabled = false;
                 dom.saveTrackBtn.disabled = false;
             } else { throw new Error("API did not return a valid filename."); }
@@ -162,6 +140,30 @@ document.addEventListener('DOMContentLoaded', () => {
             dom.generateMainBtn.disabled = false;
         }
     }
+
+    // --- NEWLY ADDED: The missing player function ---
+    const loadAndPlayAudio = (audioElement, fileObj, type, isPreview = false) => {
+        if (fileObj && fileObj.name) {
+            let path;
+            if (fileObj.tag === 'base' || fileObj.uploader === '内置' || fileObj.uploader === 'system') {
+                path = `/static-media/${type}/${encodeURIComponent(fileObj.name)}`;
+            } else {
+                 path = `/media/database/${type}/${encodeURIComponent(fileObj.name)}`;
+            }
+            console.log(`Loading audio from: ${path}`);
+            audioElement.src = path;
+            if (isPreview) {
+                // For preview, we want to ensure it's ready before enabling the button
+                audioElement.addEventListener('canplaythrough', () => {
+                     console.log("Preview audio is ready.");
+                }, { once: true });
+            }
+            audioElement.load();
+            if(state.isPlaying || isPreview) {
+                audioElement.play().catch(e => console.error(`Audio play failed for ${path}:`, e));
+            }
+        }
+    };
 
     function setupPreview() {
         let breathProgress = 0, lastFrameTime = 0, breathPhase = 'inhale';
@@ -228,7 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function initialize() {
         try {
-            const authStatus = await apiCall('/auth/status'); // This will now correctly use GET
+            const authStatus = await apiCall('/auth/status');
             if(authStatus && authStatus.logged_in) {
                 state.isLoggedIn = true;
                 state.username = authStatus.username;
@@ -243,11 +245,28 @@ document.addEventListener('DOMContentLoaded', () => {
             window.location.href = '/index.html';
             return;
         }
+        
         renderAudioLists();
         setupTabs();
         setupPreview();
+
+        const handleUpload = async (file, trackType) => {
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const response = await fetch(`/api/upload/${trackType}`, { method: 'POST', body: formData });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error);
+                await renderAudioLists();
+            } catch (error) {
+                alert(`上传失败: ${error.message}`);
+            }
+        };
+        
         if (dom.generateMainBtn) { dom.generateMainBtn.addEventListener('click', generateMainTrack); }
         if (dom.saveTrackBtn) { dom.saveTrackBtn.addEventListener('click', saveTrack); }
+        if (dom.mixElementUpload) { dom.mixElementUpload.addEventListener('change', (e) => handleUpload(e.target.files[0], 'mix_elements')); }
     }
 
     initialize();
