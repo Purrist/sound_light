@@ -1,27 +1,19 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- 1. STATE AND DOM ---
-    const state = {
-        isLoggedIn: false,
-        username: null,
-        isAdmin: false,
-        tempFilename: null,
-        trackType: null,
-        isPlaying: false,
-        animationFrameId: null,
-        audioFiles: { mainsound: [], plussound: [], mix_elements: [] },
-    };
+    // --- 1. DOM (Specific to generator.html) ---
+    // The global 'state' object is in common.js
     const dom = {
-        libraryPanel: document.querySelector('.library-panel'),
         mainAudioList: document.getElementById('mainAudioList'),
         auxAudioList: document.getElementById('auxAudioList'),
         mixElementsList: document.getElementById('mixElementsList'),
         mixElementUpload: document.getElementById('mixElementUpload'),
         tabButtons: document.querySelectorAll('.tab-button'),
         tabContents: document.querySelectorAll('.tab-content'),
-        noiseDuration: document.getElementById('noiseDuration'),
-        toneSlider: document.getElementById('toneSlider'),
-        resonanceSlider: document.getElementById('resonanceSlider'),
-        widthSlider: document.getElementById('widthSlider'),
+        // NEW Noise parameters
+        lowShelfSlider: document.getElementById('lowShelfSlider'),
+        midShelfSlider: document.getElementById('midShelfSlider'),
+        highShelfSlider: document.getElementById('highShelfSlider'),
+        modRateSlider: document.getElementById('modRateSlider'),
+        modDepthSlider: document.getElementById('modDepthSlider'),
         generateMainBtn: document.getElementById('generateMainBtn'),
         previewLight: document.getElementById('preview-light-background'),
         previewText: document.getElementById('preview-guide-text'),
@@ -33,72 +25,16 @@ document.addEventListener('DOMContentLoaded', () => {
         previewInfo: document.getElementById('previewInfo'),
         saveTrackBtn: document.getElementById('saveTrackBtn'),
     };
+
+    // Add page-specific state properties
+    state.tempFilename = null;
+    state.trackType = null;
+    state.isPlaying = false;
+    state.animationFrameId = null;
+
     let audioCtx, gainNode, sourceNode;
 
-    // --- 2. API HELPER ---
-    async function apiCall(url, method = 'GET', body = null) {
-        try {
-            const options = { method, headers: {} };
-            if (body) {
-                options.body = JSON.stringify(body);
-                options.headers['Content-Type'] = 'application/json';
-            }
-            const response = await fetch(url, options);
-            const responseData = await response.json().catch(() => null);
-            if (!response.ok) {
-                const errorMessage = responseData?.error || `HTTP error! status: ${response.status}`;
-                throw new Error(errorMessage);
-            }
-            return responseData;
-        } catch (error) {
-            console.error('API Call Failed:', url, error);
-            alert(`操作失败: ${error.message}`);
-            throw error;
-        }
-    }
-
-    // --- 3. CORE FUNCTIONS ---
-    async function renderAudioLists() {
-        state.audioFiles = await apiCall('/api/get-audio-files');
-        const populateList = (listElement, files, trackType) => {
-            listElement.innerHTML = '';
-            if (!files) return;
-            files.forEach(file => {
-                const li = document.createElement('li');
-                li.className = `tag-${file.tag || (file.is_global ? 'global' : 'normal')}`;
-                li.title = `类型: ${file.tag || (file.is_global ? 'global' : 'normal')}, 上传者: ${file.uploader}`;
-
-                let actionButtons = '';
-                if (file.tag !== 'base') {
-                    if (file.tag === 'normal' || (file.uploader === state.username && !file.is_global) ) {
-                        actionButtons += `<button class="delete-btn" title="删除">✕</button>`;
-                    }
-                    if (state.isAdmin) {
-                        if (file.tag === 'global' || file.is_global) {
-                            actionButtons += `<button class="delete-btn" title="删除受保护文件">✕</button>`;
-                            actionButtons += `<button class="unprotect-btn" title="解锁">🔓</button>`;
-                        } else {
-                            actionButtons += `<button class="protect-btn" title="锁定">🔒</button>`;
-                        }
-                    }
-                }
-                const uploaderTag = file.uploader === '内置' ? '' : `(${file.uploader})`;
-                li.innerHTML = `<span class="preset-name">${file.name}</span><em class="owner-tag">${uploaderTag}</em><div class="preset-actions">${actionButtons}</div>`;
-
-                const deleteBtn = li.querySelector('.delete-btn');
-                if (deleteBtn) { deleteBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (confirm(`确定删除音频 "${file.name}"?`)) { try { await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE'); await renderAudioLists(); } catch (err) { alert(`删除失败: ${err.message}`); } } }); }
-                const protectBtn = li.querySelector('.protect-btn');
-                if (protectBtn) { protectBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { await apiCall(`/api/audio/protect/${trackType}/${file.name}`, 'POST'); await renderAudioLists(); } catch (err) { alert(`操作失败: ${err.message}`); } }); }
-                const unprotectBtn = li.querySelector('.unprotect-btn');
-                if (unprotectBtn) { unprotectBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { await apiCall(`/api/audio/unprotect/${trackType}/${file.name}`, 'POST'); await renderAudioLists(); } catch (err) { alert(`操作失败: ${err.message}`); } }); }
-                
-                listElement.appendChild(li);
-            });
-        };
-        populateList(dom.mainAudioList, state.audioFiles.mainsound, 'mainsound');
-        populateList(dom.auxAudioList, state.audioFiles.plussound, 'plussound');
-        populateList(dom.mixElementsList, state.audioFiles.mix_elements, 'mix_elements');
-    }
+    // --- CORE FUNCTIONS (Specific to generator.html) ---
 
     function setupTabs() {
         dom.tabButtons.forEach(button => {
@@ -116,10 +52,12 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.generateMainBtn.disabled = true;
         resetPreview();
         const params = {
-            duration_s: parseInt(dom.noiseDuration.value),
-            tone_cutoff_hz: parseInt(dom.toneSlider.value),
-            resonance: parseFloat(dom.resonanceSlider.value),
-            stereo_width: parseFloat(dom.widthSlider.value),
+            duration_s: 480, // Fixed 8 minutes for high quality
+            low_shelf_gain_db: parseFloat(dom.lowShelfSlider.value),
+            mid_shelf_gain_db: parseFloat(dom.midShelfSlider.value),
+            high_shelf_gain_db: parseFloat(dom.highShelfSlider.value),
+            modulation_rate_hz: parseFloat(dom.modRateSlider.value),
+            modulation_depth_db: parseFloat(dom.modDepthSlider.value),
         };
         try {
             const result = await apiCall('/api/generate/main-noise', 'POST', params);
@@ -127,9 +65,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.tempFilename = result.filename;
                 state.trackType = 'mainsound';
                 dom.previewInfo.textContent = `预览: ${result.filename}`;
-                // This creates a "temporary" file object for the player
-                const tempFileObj = { name: result.filename, uploader: state.username, tag: 'normal' };
-                loadAndPlayAudio(dom.previewAudio, tempFileObj, 'mainsound', true); // true for isPreview
+                const fileObj = { name: result.filename, tag: 'normal' };
+                loadAudioForPreview(dom.previewAudio, fileObj, 'mainsound');
                 dom.previewToggleBtn.disabled = false;
                 dom.saveTrackBtn.disabled = false;
             } else { throw new Error("API did not return a valid filename."); }
@@ -140,34 +77,19 @@ document.addEventListener('DOMContentLoaded', () => {
             dom.generateMainBtn.disabled = false;
         }
     }
-
-    // --- NEWLY ADDED: The missing player function ---
-    const loadAndPlayAudio = (audioElement, fileObj, type, isPreview = false) => {
+    
+    const loadAudioForPreview = (audioElement, fileObj, type) => {
         if (fileObj && fileObj.name) {
-            let path;
-            if (fileObj.tag === 'base' || fileObj.uploader === '内置' || fileObj.uploader === 'system') {
-                path = `/static-media/${type}/${encodeURIComponent(fileObj.name)}`;
-            } else {
-                 path = `/media/database/${type}/${encodeURIComponent(fileObj.name)}`;
-            }
-            console.log(`Loading audio from: ${path}`);
+            let path = `/media/database/${type}/${encodeURIComponent(fileObj.name)}`;
+            console.log(`Loading preview audio from: ${path}`);
             audioElement.src = path;
-            if (isPreview) {
-                // For preview, we want to ensure it's ready before enabling the button
-                audioElement.addEventListener('canplaythrough', () => {
-                     console.log("Preview audio is ready.");
-                }, { once: true });
-            }
             audioElement.load();
-            if(state.isPlaying || isPreview) {
-                audioElement.play().catch(e => console.error(`Audio play failed for ${path}:`, e));
-            }
         }
     };
 
     function setupPreview() {
         let breathProgress = 0, lastFrameTime = 0, breathPhase = 'inhale';
-        const warmColor = '#e48737', coolColor = '#9ea9d7';
+        const warmColor = '#e48737', coolColor = '#9ea9d7'; // Example colors
         function previewLoop(timestamp) {
             if (!state.isPlaying) return;
             state.animationFrameId = requestAnimationFrame(previewLoop);
@@ -176,7 +98,9 @@ document.addEventListener('DOMContentLoaded', () => {
             breathProgress += (timestamp - (lastFrameTime || timestamp)) / phaseDuration;
             if (breathProgress >= 1) { breathProgress = 0; breathPhase = breathPhase === 'inhale' ? 'exhale' : 'inhale'; dom.previewText.textContent = breathPhase === 'inhale' ? '吸气' : '呼气'; }
             const currentProgress = breathPhase === 'inhale' ? breathProgress : 1 - breathProgress;
-            const r1=parseInt(coolColor.slice(1,3),16), g1=parseInt(coolColor.slice(3,5),16), b1=parseInt(coolColor.slice(5,7),16); const r2=parseInt(warmColor.slice(1,3),16), g2=parseInt(warmColor.slice(3,5),16), b2=parseInt(warmColor.slice(5,7),16); const r=Math.round(r1+currentProgress*(r2-r1)), g=Math.round(g1+currentProgress*(g2-g1)), b=Math.round(b1+currentProgress*(b2-b1)); dom.previewLight.style.backgroundColor = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+            // This is a simplified color interpolation, you might have this in common.js
+            const interpolate = (c1, c2, f) => { const r1=parseInt(c1.slice(1,3),16), g1=parseInt(c1.slice(3,5),16), b1=parseInt(c1.slice(5,7),16); const r2=parseInt(c2.slice(1,3),16), g2=parseInt(c2.slice(3,5),16), b2=parseInt(c2.slice(5,7),16); const r=Math.round(r1+f*(r2-r1)), g=Math.round(g1+f*(g2-g1)), b=Math.round(b1+f*(b2-b1)); return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`; };
+            dom.previewLight.style.backgroundColor = interpolate(coolColor, warmColor, currentProgress);
             if (gainNode) { const minVol = parseFloat(dom.previewMinVol.value); const maxVol = parseFloat(dom.previewMaxVol.value); const minGain = minVol <= -80 ? 0 : Math.pow(10, minVol / 20); const maxGain = maxVol <= -80 ? 0 : Math.pow(10, maxVol / 20); gainNode.gain.value = minGain + (maxGain - minGain) * currentProgress; }
             lastFrameTime = timestamp;
         }
@@ -202,14 +126,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     async function saveTrack() {
-        const defaultName = `粉红噪音_${new Date().toLocaleDateString().replaceAll('/', '')}.wav`;
+        const defaultName = `助眠噪音_${new Date().toLocaleDateString().replaceAll('/', '-')}.wav`;
         const final_filename = prompt("为新生成的音频命名:", defaultName);
         if (final_filename && state.tempFilename) {
             dom.saveTrackBtn.disabled = true; dom.saveTrackBtn.textContent = '保存中...';
             try {
                 await apiCall('/api/audio/save-temp', 'POST', { temp_filename: state.tempFilename, final_filename: final_filename, track_type: state.trackType });
                 alert('音频已成功保存到音乐库！');
-                renderAudioLists();
+                const listMap = { mainAudioList: dom.mainAudioList, auxAudioList: dom.auxAudioList, mixElementsList: dom.mixElementsList };
+                renderAudioLists(listMap);
                 resetPreview();
             } catch (error) {
                 dom.saveTrackBtn.disabled = false;
@@ -246,27 +171,21 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        renderAudioLists();
+        const listMap = { 
+            mainAudioList: dom.mainAudioList,
+            auxAudioList: dom.auxAudioList,
+            mixElementsList: dom.mixElementsList,
+        };
+        renderAudioLists(listMap); // Use the shared function
+        
         setupTabs();
         setupPreview();
 
-        const handleUpload = async (file, trackType) => {
-            if (!file) return;
-            const formData = new FormData();
-            formData.append('file', file);
-            try {
-                const response = await fetch(`/api/upload/${trackType}`, { method: 'POST', body: formData });
-                const result = await response.json();
-                if (!response.ok) throw new Error(result.error);
-                await renderAudioLists();
-            } catch (error) {
-                alert(`上传失败: ${error.message}`);
-            }
-        };
-        
+        const localHandleUpload = async (file, trackType) => { await handleUpload(file, trackType, listMap); };
+
         if (dom.generateMainBtn) { dom.generateMainBtn.addEventListener('click', generateMainTrack); }
         if (dom.saveTrackBtn) { dom.saveTrackBtn.addEventListener('click', saveTrack); }
-        if (dom.mixElementUpload) { dom.mixElementUpload.addEventListener('change', (e) => handleUpload(e.target.files[0], 'mix_elements')); }
+        if (dom.mixElementUpload) { dom.mixElementUpload.addEventListener('change', (e) => localHandleUpload(e.target.files[0], 'mix_elements')); }
     }
 
     initialize();
