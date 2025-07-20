@@ -1,3 +1,5 @@
+// public/generator.js (最终的、加固的版本)
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. STATE AND DOM ---
     const state = {
@@ -55,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 3. CORE FUNCTIONS ---
 
     async function loadLibrary() {
+        console.log("Attempting to load library...");
         try {
             const audioFiles = await fetch('/api/get-audio-files').then(res => res.json());
             const populate = (list, files) => {
@@ -72,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
             populate(dom.mainAudioList, audioFiles.mainsound);
             populate(dom.auxAudioList, audioFiles.plussound);
             populate(dom.mixElementsList, audioFiles.mix_elements);
+            console.log("Library loaded successfully.");
         } catch (error) {
             console.error("Failed to load library:", error);
         }
@@ -86,22 +90,39 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById(button.dataset.tab).classList.add('active');
             });
         });
+        console.log("Tabs setup complete.");
     }
 
     async function generateMainTrack() {
+        console.log("generateMainTrack function called!"); // <-- 探针 #1
         dom.generateMainBtn.textContent = '生成中...';
         dom.generateMainBtn.disabled = true;
         resetPreview();
-    try {
+        
+        const params = {
+            duration_s: parseInt(dom.noiseDuration.value),
+            tone_cutoff_hz: parseInt(dom.toneSlider.value),
+            stereo_width: parseFloat(dom.widthSlider.value),
+        };
+        console.log("Sending generation request with params:", params); // <-- 探针 #2
+
+        try {
             const result = await apiCall('/api/generate/main-noise', 'POST', params);
-            state.tempFilename = result.filename;
-            state.trackType = 'mainsound';
+            console.log("Generation successful, received response:", result); // <-- 探针 #3
             
-            // KEY CHANGE: Use the unified /media/ route for previews too
-            dom.previewAudio.src = `/media/mainsound/${encodeURIComponent(result.filename)}`;
-            
-            dom.previewToggleBtn.disabled = false;
+            if (result && result.filename) {
+                state.tempFilename = result.filename;
+                state.trackType = 'mainsound';
+                
+                dom.previewFilenameDisplay.textContent = `当前预览: ${result.filename}`;
+                dom.previewAudio.src = `/media/mainsound/${encodeURIComponent(result.filename)}`;
+                dom.previewToggleBtn.disabled = false;
+                dom.saveTrackBtn.disabled = false;
+            } else {
+                 throw new Error("API response did not include a filename.");
+            }
         } catch (error) {
+            console.error("Generation failed:", error);
             dom.previewFilenameDisplay.textContent = '生成失败!';
         } finally {
             dom.generateMainBtn.textContent = '重新生成';
@@ -118,24 +139,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const cycleDuration = (60 / parseInt(dom.previewBPM.value)) * 1000;
             const phaseDuration = cycleDuration / 2;
             breathProgress += (timestamp - (lastFrameTime || timestamp)) / phaseDuration;
-            if (breathProgress >= 1) {
-                breathProgress = 0;
-                breathPhase = breathPhase === 'inhale' ? 'exhale' : 'inhale';
-                dom.previewText.textContent = breathPhase === 'inhale' ? '吸气' : '呼气';
-            }
+            if (breathProgress >= 1) { breathProgress = 0; breathPhase = breathPhase === 'inhale' ? 'exhale' : 'inhale'; dom.previewText.textContent = breathPhase === 'inhale' ? '吸气' : '呼气'; }
             const currentProgress = breathPhase === 'inhale' ? breathProgress : 1 - breathProgress;
-            const r1=parseInt(coolColor.slice(1,3),16), g1=parseInt(coolColor.slice(3,5),16), b1=parseInt(coolColor.slice(5,7),16);
-            const r2=parseInt(warmColor.slice(1,3),16), g2=parseInt(warmColor.slice(3,5),16), b2=parseInt(warmColor.slice(5,7),16);
-            const r=Math.round(r1+currentProgress*(r2-r1)), g=Math.round(g1+currentProgress*(g2-g1)), b=Math.round(b1+currentProgress*(b2-b1));
-            dom.previewLight.style.backgroundColor = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
-
-            if (gainNode) {
-                const minVol = parseFloat(dom.previewMinVol.value);
-                const maxVol = parseFloat(dom.previewMaxVol.value);
-                const minGain = minVol <= -80 ? 0 : Math.pow(10, minVol / 20);
-                const maxGain = maxVol <= -80 ? 0 : Math.pow(10, maxVol / 20);
-                gainNode.gain.value = minGain + (maxGain - minGain) * currentProgress;
-            }
+            const r1=parseInt(coolColor.slice(1,3),16), g1=parseInt(coolColor.slice(3,5),16), b1=parseInt(coolColor.slice(5,7),16); const r2=parseInt(warmColor.slice(1,3),16), g2=parseInt(warmColor.slice(3,5),16), b2=parseInt(warmColor.slice(5,7),16); const r=Math.round(r1+currentProgress*(r2-r1)), g=Math.round(g1+currentProgress*(g2-g1)), b=Math.round(b1+currentProgress*(b2-b1)); dom.previewLight.style.backgroundColor = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+            if (gainNode) { const minVol = parseFloat(dom.previewMinVol.value); const maxVol = parseFloat(dom.previewMaxVol.value); const minGain = minVol <= -80 ? 0 : Math.pow(10, minVol / 20); const maxGain = maxVol <= -80 ? 0 : Math.pow(10, maxVol / 20); gainNode.gain.value = minGain + (maxGain - minGain) * currentProgress; }
             lastFrameTime = timestamp;
         }
 
@@ -147,80 +154,71 @@ document.addEventListener('DOMContentLoaded', () => {
                     sourceNode = audioCtx.createMediaElementSource(dom.previewAudio);
                     gainNode = audioCtx.createGain();
                     sourceNode.connect(gainNode).connect(audioCtx.destination);
-                } catch (e) {
-                    console.error("Error setting up AudioContext:", e);
-                    alert("无法初始化音频预览。请确保您已点击生成按钮。");
-                    return;
-                }
+                } catch (e) { console.error("Error setting up AudioContext:", e); alert("无法初始化音频预览。"); return; }
             }
             if (state.isPlaying) {
-                state.isPlaying = false;
-                dom.previewAudio.pause();
-                dom.previewToggleBtn.textContent = '▶ 预览';
-                cancelAnimationFrame(state.animationFrameId);
+                state.isPlaying = false; dom.previewAudio.pause(); dom.previewToggleBtn.textContent = '▶ 预览'; cancelAnimationFrame(state.animationFrameId);
             } else {
-                state.isPlaying = true;
-                if(audioCtx.state === 'suspended') audioCtx.resume();
-                dom.previewAudio.play().catch(e => {
-                    console.error("Preview play failed:", e);
-                    state.isPlaying = false;
-                });
-                dom.previewToggleBtn.textContent = '❚❚ 暂停';
-                lastFrameTime = performance.now();
+                state.isPlaying = true; if(audioCtx.state === 'suspended') audioCtx.resume();
+                dom.previewAudio.play().catch(e => { console.error("Preview play failed:", e); state.isPlaying = false; });
+                dom.previewToggleBtn.textContent = '❚❚ 暂停'; lastFrameTime = performance.now();
                 requestAnimationFrame(previewLoop);
             }
         });
+        console.log("Preview setup complete.");
     }
     
     async function saveTrack() {
-        const defaultName = state.tempFilename
-            .replace('temp_', '噪音_')
-            .replace(/_\d+\.wav$/, '.wav');
+        const defaultName = state.tempFilename.replace('temp_', '噪音_').replace(/_\d+\.wav$/, '.wav');
         const final_filename = prompt("请输入新音频的名称:", defaultName);
         if (final_filename && state.tempFilename) {
-            dom.saveTrackBtn.disabled = true;
-            dom.saveTrackBtn.textContent = '保存中...';
+            dom.saveTrackBtn.disabled = true; dom.saveTrackBtn.textContent = '保存中...';
             try {
-                await apiCall('/api/audio/save-temp', 'POST', {
-                    temp_filename: state.tempFilename,
-                    final_filename: final_filename,
-                    track_type: state.trackType
-                });
+                await apiCall('/api/audio/save-temp', 'POST', { temp_filename: state.tempFilename, final_filename: final_filename, track_type: state.trackType });
                 alert('音频已成功保存到音乐库！');
                 loadLibrary();
                 resetPreview();
-            } catch (error) {
-                dom.saveTrackBtn.disabled = false;
-            } finally {
-                dom.saveTrackBtn.textContent = '💾 保存到音乐库';
-            }
+            } catch (error) { dom.saveTrackBtn.disabled = false; }
+            finally { dom.saveTrackBtn.textContent = '💾 保存到音乐库'; }
         }
     }
     
     function resetPreview() {
-        if(state.isPlaying) {
-            dom.previewToggleBtn.click();
-        }
-        state.tempFilename = null;
-        state.trackType = null;
-        dom.saveTrackBtn.disabled = true;
-        dom.previewToggleBtn.disabled = true;
+        if(state.isPlaying) { dom.previewToggleBtn.click(); }
+        state.tempFilename = null; state.trackType = null;
+        dom.saveTrackBtn.disabled = true; dom.previewToggleBtn.disabled = true;
         dom.previewAudio.src = '';
-        dom.previewFilenameDisplay.textContent = '';
+        if (dom.previewFilenameDisplay) { dom.previewFilenameDisplay.textContent = '暂无音乐生成'; }
         dom.previewText.textContent = '预览';
     }
 
     function initialize() {
-        // Create the preview filename display element dynamically
+        console.log("Initializing generator page...");
+        // Create the preview filename display element dynamically and add to DOM
         dom.previewFilenameDisplay = document.createElement('div');
         dom.previewFilenameDisplay.className = 'preview-filename';
         dom.previewLight.parentElement.appendChild(dom.previewFilenameDisplay);
+        resetPreview(); // Set initial text
 
         loadLibrary();
         setupTabs();
         setupPreview();
-        dom.generateMainBtn.addEventListener('click', generateMainTrack);
-        dom.saveTrackBtn.addEventListener('click', saveTrack);
+
+        // KEY CHANGE: Ensure the button exists before adding listener
+        if (dom.generateMainBtn) {
+            dom.generateMainBtn.addEventListener('click', generateMainTrack);
+            console.log("Event listener for generateMainBtn ADDED.");
+        } else {
+            console.error("FATAL: generateMainBtn not found in DOM!");
+        }
+        
+        if (dom.saveTrackBtn) {
+            dom.saveTrackBtn.addEventListener('click', saveTrack);
+            console.log("Event listener for saveTrackBtn ADDED.");
+        } else {
+            console.error("FATAL: saveTrackBtn not found in DOM!");
+        }
+        console.log("Initialization complete.");
     }
 
     initialize();

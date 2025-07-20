@@ -155,3 +155,10 @@ select { flex-grow: 1; padding: 6px; background: var(--input-bg); color: var(--t
     font-size: 16px;
     background: none;
 }
+.preset-list .preset-name {
+    font-size: 0.95em; /* 稍微缩小字体 */
+    max-width: 160px; /* 限制最大宽度，避免太长 */
+}
+.preset-list li {
+    padding: 7px 10px; /* 微调内边距 */
+}
