@@ -4,7 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
         isLoggedIn: false, username: null, isAdmin: false,
         isRunning: false, isPaused: false, currentPhase: 'idle', breathPhase: 'inhale',
         animationFrameId: null, runTimerId: null, totalRunTime: 0, startTime: 0, syncStartTime: 0,
-        mainAudioFile: null, auxAudioFile: null,
+        mainAudioFile: null, // This will now store the full file object
+        auxAudioFile: null,  // This will also store the full file object
         audioFiles: { mainsound: [], plussound: [], mix_elements: [] },
         soundscapes: [],
     };
@@ -86,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function renderConfigList() { try { const configs = await apiCall('/api/controlsets'); const { default: defaultName } = await apiCall('/api/controlsets/default'); dom.configList.innerHTML = ''; dom.currentDefaultConfig.textContent = defaultName || '无'; configs.forEach(item => { const li = document.createElement('li'); li.className = (item.name === defaultName) ? 'is-default' : ''; if(item.is_global) li.classList.add('is-global'); li.innerHTML = `<span class="preset-name">${item.name}</span><div class="preset-actions"><button class="apply-btn" title="应用">✔</button><button class="default-btn" title="设为默认">⭐</button><button class="delete-btn" title="删除">✕</button></div>`; li.querySelector('.apply-btn').addEventListener('click', async () => applySettings(await apiCall(`/api/controlsets/${item.name}`))); li.querySelector('.default-btn').addEventListener('click', async () => { await apiCall('/api/controlsets/default', 'POST', { name: item.name }); renderConfigList(); }); li.querySelector('.delete-btn').addEventListener('click', async () => { if (confirm(`确定删除配置 "${item.name}"?`)) { try { await apiCall('/api/controlsets', 'DELETE', { name: item.name }); await renderConfigList(); } catch (error) { alert(`删除失败: ${error.message}`); } } }); dom.configList.appendChild(li); }); } catch (e) { console.error("Failed to render config list:", e); } }
     async function renderSoundscapeList() { try { state.soundscapes = await apiCall('/api/soundsets'); const currentVal = dom.soundscapeSelect.value; dom.soundscapeSelect.innerHTML = ''; state.soundscapes.forEach(item => dom.soundscapeSelect.innerHTML += `<option value="${item.name}">${item.name}</option>`); if (currentVal && state.soundscapes.some(s => s.name === currentVal)) dom.soundscapeSelect.value = currentVal; else if (state.soundscapes.length > 0) dom.soundscapeSelect.value = state.soundscapes[0].name; dom.soundscapeManagementList.innerHTML = ''; state.soundscapes.forEach(item => { const li = document.createElement('li'); if(item.is_global) li.classList.add('is-global'); li.innerHTML = `<span class="preset-name">${item.name}</span><div class="preset-actions"><button class="delete-btn" title="删除">✕</button></div>`; const deleteBtn = li.querySelector('.delete-btn'); if (item.name === dom.soundscapeSelect.value) { deleteBtn.disabled = true; deleteBtn.title = '无法删除正在使用的声景'; } deleteBtn.addEventListener('click', async () => { if (confirm(`确定删除声景 "${item.name}"?`)) { try { await apiCall('/api/soundsets', 'DELETE', { name: item.name }); await renderSoundscapeList(); await renderConfigList(); } catch(error) { alert(`删除失败: ${error.message}`); } } }); dom.soundscapeManagementList.appendChild(li); }); } catch(e) { console.error("Failed to render soundscape list:", e); } }
     
+    // --- KEY CHANGE: THIS IS THE CORRECTED VERSION ---
     async function renderAudioLists() {
         state.audioFiles = await apiCall('/api/get-audio-files');
         const populateList = (listElement, files, trackType) => {
@@ -94,25 +96,52 @@ document.addEventListener('DOMContentLoaded', () => {
             files.forEach(file => {
                 const li = document.createElement('li');
                 li.className = file.is_global ? 'is-global' : 'is-user';
+                li.title = `上传者: ${file.uploader || 'system'}`;
+
                 let actionButtons = '';
-                if (!file.is_global) { actionButtons += `<button class="delete-btn" title="删除">✕</button>`; }
                 if (state.isAdmin) {
-                    if (file.is_global) {
-                        actionButtons += `<button class="delete-btn" title="删除受保护文件">✕</button>`;
+                    actionButtons += `<button class="delete-btn" data-username="${file.uploader || state.username}" title="删除">✕</button>`;
+                    if (file.is_global && file.uploader !== 'system') {
                         actionButtons += `<button class="unprotect-btn" title="取消保护">🔓</button>`;
-                    } else {
-                        actionButtons += `<button class="protect-btn" title="保护 (设为全局)">🔒</button>`;
+                    } else if (!file.is_global) {
+                        actionButtons += `<button class="protect-btn" title="设为全局">🔒</button>`;
                     }
+                } else if (!file.is_global && file.uploader === state.username) {
+                    actionButtons += `<button class="delete-btn" data-username="${state.username}" title="删除">✕</button>`;
                 }
-                //const uploaderTag = file.uploader === 'system' ? '(内置)' : `(${file.uploader})`;
-                li.title = `上传者: ${file.uploader}`;
+                
                 li.innerHTML = `<span class="preset-name">${file.name}</span><div class="preset-actions">${actionButtons}</div>`;
+                
                 const deleteBtn = li.querySelector('.delete-btn');
-                if (deleteBtn) { deleteBtn.addEventListener('click', async () => { if (confirm(`确定删除音频 "${file.name}"?\n这个操作无法撤销。`)) { try { await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE'); await renderAudioLists(); } catch (err) { alert(`删除失败: ${err.message}`); } } }); }
+                if (deleteBtn) {
+                    deleteBtn.addEventListener('click', async () => {
+                        const usernameToDelete = file.uploader;
+                        if (confirm(`确定删除音频 "${file.name}"?`)) {
+                            try {
+                                await apiCall(`/api/delete-audio/${trackType}/${usernameToDelete}/${file.name}`, 'DELETE');
+                                await renderAudioLists();
+                            } catch (err) { alert(`删除失败: ${err.message}`); }
+                        }
+                    });
+                }
                 const protectBtn = li.querySelector('.protect-btn');
-                if (protectBtn) { protectBtn.addEventListener('click', async () => { try { await apiCall(`/api/audio/protect/${trackType}/${file.name}`, 'POST'); await renderAudioLists(); } catch (err) { alert(`操作失败: ${err.message}`); } }); }
+                if (protectBtn) {
+                    protectBtn.addEventListener('click', async () => {
+                        try {
+                            await apiCall(`/api/audio/protect/${trackType}/${file.uploader}/${file.name}`, 'POST');
+                            await renderAudioLists();
+                        } catch (err) { alert(`操作失败: ${err.message}`); }
+                    });
+                }
                 const unprotectBtn = li.querySelector('.unprotect-btn');
-                if (unprotectBtn) { unprotectBtn.addEventListener('click', async () => { try { await apiCall(`/api/audio/unprotect/${trackType}/${file.name}`, 'POST'); await renderAudioLists(); } catch (err) { alert(`操作失败: ${err.message}`); } }); }
+                if (unprotectBtn) {
+                    unprotectBtn.addEventListener('click', async () => {
+                        try {
+                            await apiCall(`/api/audio/unprotect/${trackType}/${file.name}`, 'POST');
+                            await renderAudioLists();
+                        } catch (err) { alert(`操作失败: ${err.message}`); }
+                    });
+                }
                 listElement.appendChild(li);
             });
         };
@@ -123,6 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
         populateSelect(dom.auxTrackSelect, state.audioFiles.plussound, true);
     }
     
+    // --- KEY CHANGE: THIS IS THE CORRECTED VERSION ---
     async function updateCurrentSoundscape(name) {
         if (!name) { state.mainAudioFile = null; state.auxAudioFile = null; dom.mainTrackName.textContent = '无'; dom.auxTrackName.textContent = '无'; return; }
         try {
@@ -186,12 +216,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.startTime = performance.now(); lastFrameTime = 0;
                 dom.lightBg.style.transition = 'none';
                 
+                // --- KEY CHANGE: THIS IS THE CORRECTED VERSION ---
                 const loadAndPlayAudio = (audioElement, fileObj, type) => {
                     if (fileObj && fileObj.name) {
                         let path;
                         if (fileObj.uploader === 'system') {
+                            // Built-in files from GitHub repo are served via a different route
+                            // or CDN in production. For local, we create a new route.
                             path = `/static-media/${type}/${encodeURIComponent(fileObj.name)}`;
                         } else {
+                            // All user-managed files (global or not) are served from one place
                             path = `/media/${type}/${encodeURIComponent(fileObj.name)}`;
                         }
                         console.log(`Loading audio from: ${path}`);
@@ -228,7 +262,17 @@ document.addEventListener('DOMContentLoaded', () => {
         [dom.saveConfigModal, dom.soundscapeModal, dom.addMusicModal].forEach(modal => { modal.addEventListener('click', e => { if (e.target.classList.contains('modal-overlay') || e.target.classList.contains('cancel-btn')) modal.classList.add('hidden'); }); const cancelBtn = modal.querySelector('.cancel-btn'); if (cancelBtn) cancelBtn.addEventListener('click', () => modal.classList.add('hidden')); });
         
         dom.confirmSaveConfigBtn.addEventListener('click', async () => { const name = dom.configNameInput.value.trim(); if (!name) return alert('请输入配置名称！'); const settings = { ...Object.fromEntries([...document.querySelectorAll('.console input, .console select')].map(el => [el.id, el.type === 'checkbox' ? el.checked : el.value])), kelvinSliderDefault: dom.kelvinSliderDefault.value, kelvinSliderMin: dom.kelvinSliderMin.value, kelvinSliderMax: dom.kelvinSliderMax.value, }; try { await apiCall('/api/controlsets', 'POST', { name, settings }); dom.saveConfigModal.classList.add('hidden'); renderConfigList(); } catch(err) { alert(`保存失败: ${err.message}`)}; });
-        const openSoundscapeModal = (isEditing) => { dom.soundscapeModal.dataset.isEditing = isEditing; const currentName = dom.soundscapeSelect.value; const currentSoundscape = state.soundscapes.find(s => s.name === currentName); dom.soundscapeModalTitle.textContent = isEditing ? `修改声景: ${currentName}` : '创建新声景'; dom.soundscapeNameInput.value = isEditing ? currentName : ''; dom.soundscapeNameInput.disabled = isEditing && currentSoundscape?.is_global; dom.mainTrackSelect.value = state.mainAudioFile ? state.mainAudioFile.name : ''; dom.auxTrackSelect.value = state.auxAudioFile ? state.auxAudioFile.name : ''; dom.soundscapeModal.classList.remove('hidden'); };
+        const openSoundscapeModal = (isEditing) => {
+            dom.soundscapeModal.dataset.isEditing = isEditing;
+            const currentName = dom.soundscapeSelect.value;
+            const currentSoundscape = state.soundscapes.find(s => s.name === currentName);
+            dom.soundscapeModalTitle.textContent = isEditing ? `修改声景: ${currentName}` : '创建新声景';
+            dom.soundscapeNameInput.value = isEditing ? currentName : '';
+            dom.soundscapeNameInput.disabled = isEditing && currentSoundscape?.is_global;
+            dom.mainTrackSelect.value = state.mainAudioFile ? state.mainAudioFile.name : '';
+            dom.auxTrackSelect.value = state.auxAudioFile ? state.auxAudioFile.name : '';
+            dom.soundscapeModal.classList.remove('hidden');
+        };
         dom.addSoundscapeBtn.addEventListener('click', () => openSoundscapeModal(false));
         dom.editMainTrackBtn.addEventListener('click', () => openSoundscapeModal(true));
         dom.editAuxTrackBtn.addEventListener('click', () => openSoundscapeModal(true));

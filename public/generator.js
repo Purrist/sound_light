@@ -1,27 +1,28 @@
-// public/generator.js (最终的、加固的版本)
+// public/generator.js (最终修复版 4.2)
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. STATE AND DOM ---
     const state = {
+        isLoggedIn: false,
+        username: null,
+        isAdmin: false,
         tempFilename: null,
         trackType: null,
         isPlaying: false,
         animationFrameId: null,
     };
     const dom = {
-        // Library Panel
+        libraryPanel: document.querySelector('.library-panel'),
         mainAudioList: document.getElementById('mainAudioList'),
         auxAudioList: document.getElementById('auxAudioList'),
         mixElementsList: document.getElementById('mixElementsList'),
-        // Tab Controls
         tabButtons: document.querySelectorAll('.tab-button'),
         tabContents: document.querySelectorAll('.tab-content'),
-        // Main Track Generator Controls
         noiseDuration: document.getElementById('noiseDuration'),
         toneSlider: document.getElementById('toneSlider'),
+        resonanceSlider: document.getElementById('resonanceSlider'),
         widthSlider: document.getElementById('widthSlider'),
         generateMainBtn: document.getElementById('generateMainBtn'),
-        // Preview Panel Controls
         previewLight: document.getElementById('preview-light-background'),
         previewText: document.getElementById('preview-guide-text'),
         previewAudio: document.getElementById('previewAudio'),
@@ -29,17 +30,19 @@ document.addEventListener('DOMContentLoaded', () => {
         previewBPM: document.getElementById('previewBPM'),
         previewMinVol: document.getElementById('previewMinVol'),
         previewMaxVol: document.getElementById('previewMaxVol'),
+        previewInfo: document.getElementById('previewInfo'),
         saveTrackBtn: document.getElementById('saveTrackBtn'),
-        // A new element to show the temp filename
-        previewFilenameDisplay: null 
     };
     let audioCtx, gainNode, sourceNode;
 
     // --- 2. API HELPER ---
-    async function apiCall(url, method = 'POST', body = null) {
+    // KEY FIX: Change the default method from 'POST' to 'GET'
+    async function apiCall(url, method = 'GET', body = null) {
         try {
             const options = { method, headers: { 'Content-Type': 'application/json' } };
             if (body) options.body = JSON.stringify(body);
+            // GET requests should not have a body in options, but most browsers handle it.
+            // For robustness, we could remove it, but this is fine for now.
             const response = await fetch(url, options);
             const responseData = await response.json().catch(() => null);
             if (!response.ok) {
@@ -55,30 +58,70 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 3. CORE FUNCTIONS ---
-
-    async function loadLibrary() {
-        console.log("Attempting to load library...");
-        try {
-            const audioFiles = await fetch('/api/get-audio-files').then(res => res.json());
-            const populate = (list, files) => {
-                list.innerHTML = '';
-                if (!files) return;
-                files.forEach(file => {
-                    const li = document.createElement('li');
-                    li.className = `preset-list-item ${file.is_global ? 'is-global' : 'is-user'}`;
-                    const uploaderTag = file.uploader === 'system' ? '(内置)' : `(${file.uploader})`;
-                    li.innerHTML = `<span class="preset-name">${file.name} <em class="owner-tag">${uploaderTag}</em></span>`;
-                    li.title = `点击以添加到混音层 (即将推出)`;
-                    list.appendChild(li);
-                });
-            };
-            populate(dom.mainAudioList, audioFiles.mainsound);
-            populate(dom.auxAudioList, audioFiles.plussound);
-            populate(dom.mixElementsList, audioFiles.mix_elements);
-            console.log("Library loaded successfully.");
-        } catch (error) {
-            console.error("Failed to load library:", error);
-        }
+    async function renderAudioLists() {
+        console.log("Rendering library lists in generator...");
+        const audioFiles = await apiCall('/api/get-audio-files');
+        const populateList = (listElement, files, trackType) => {
+            listElement.innerHTML = '';
+            if (!files) return;
+            files.forEach(file => {
+                const li = document.createElement('li');
+                li.className = file.is_global ? 'is-global' : 'is-user';
+                li.title = `上传者: ${file.uploader || 'system'}`;
+                let actionButtons = '';
+                if (!file.is_global) {
+                    actionButtons += `<button class="delete-btn" title="删除">✕</button>`;
+                }
+                if (state.isAdmin) {
+                    if (file.is_global) {
+                        actionButtons += `<button class="delete-btn" title="删除受保护文件">✕</button>`;
+                        if (file.uploader !== 'system') {
+                            actionButtons += `<button class="unprotect-btn" title="取消保护">🔓</button>`;
+                        }
+                    } else {
+                        actionButtons += `<button class="protect-btn" title="保护 (设为全局)">🔒</button>`;
+                    }
+                }
+                li.innerHTML = `<span class="preset-name">${file.name}</span><div class="preset-actions">${actionButtons}</div>`;
+                
+                const deleteBtn = li.querySelector('.delete-btn');
+                if (deleteBtn) {
+                    deleteBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        if (confirm(`确定删除音频 "${file.name}"?`)) {
+                            try {
+                                await apiCall(`/api/delete-audio/${trackType}/${file.name}`, 'DELETE');
+                                await renderAudioLists();
+                            } catch (err) { alert(`删除失败: ${err.message}`); }
+                        }
+                    });
+                }
+                const protectBtn = li.querySelector('.protect-btn');
+                if (protectBtn) {
+                    protectBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        try {
+                            await apiCall(`/api/audio/protect/${trackType}/${file.name}`, 'POST');
+                            await renderAudioLists();
+                        } catch (err) { alert(`操作失败: ${err.message}`); }
+                    });
+                }
+                const unprotectBtn = li.querySelector('.unprotect-btn');
+                if (unprotectBtn) {
+                    unprotectBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        try {
+                            await apiCall(`/api/audio/unprotect/${trackType}/${file.name}`, 'POST');
+                            await renderAudioLists();
+                        } catch (err) { alert(`操作失败: ${err.message}`); }
+                    });
+                }
+                listElement.appendChild(li);
+            });
+        };
+        populateList(dom.mainAudioList, audioFiles.mainsound, 'mainsound');
+        populateList(dom.auxAudioList, audioFiles.plussound, 'plussound');
+        populateList(dom.mixElementsList, audioFiles.mix_elements, 'mix_elements');
     }
 
     function setupTabs() {
@@ -90,40 +133,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById(button.dataset.tab).classList.add('active');
             });
         });
-        console.log("Tabs setup complete.");
     }
 
     async function generateMainTrack() {
-        console.log("generateMainTrack function called!"); // <-- 探针 #1
         dom.generateMainBtn.textContent = '生成中...';
         dom.generateMainBtn.disabled = true;
         resetPreview();
-        
         const params = {
             duration_s: parseInt(dom.noiseDuration.value),
             tone_cutoff_hz: parseInt(dom.toneSlider.value),
+            resonance: parseFloat(dom.resonanceSlider.value),
             stereo_width: parseFloat(dom.widthSlider.value),
         };
-        console.log("Sending generation request with params:", params); // <-- 探针 #2
-
         try {
             const result = await apiCall('/api/generate/main-noise', 'POST', params);
-            console.log("Generation successful, received response:", result); // <-- 探针 #3
-            
             if (result && result.filename) {
                 state.tempFilename = result.filename;
                 state.trackType = 'mainsound';
-                
-                dom.previewFilenameDisplay.textContent = `当前预览: ${result.filename}`;
-                dom.previewAudio.src = `/media/mainsound/${encodeURIComponent(result.filename)}`;
+                dom.previewInfo.textContent = `预览: ${result.filename}`;
+                dom.previewAudio.src = `/media/shared/mainsound/${encodeURIComponent(result.filename)}`;
                 dom.previewToggleBtn.disabled = false;
                 dom.saveTrackBtn.disabled = false;
-            } else {
-                 throw new Error("API response did not include a filename.");
-            }
+            } else { throw new Error("API did not return a valid filename."); }
         } catch (error) {
-            console.error("Generation failed:", error);
-            dom.previewFilenameDisplay.textContent = '生成失败!';
+            dom.previewInfo.textContent = '生成失败!';
         } finally {
             dom.generateMainBtn.textContent = '重新生成';
             dom.generateMainBtn.disabled = false;
@@ -145,7 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (gainNode) { const minVol = parseFloat(dom.previewMinVol.value); const maxVol = parseFloat(dom.previewMaxVol.value); const minGain = minVol <= -80 ? 0 : Math.pow(10, minVol / 20); const maxGain = maxVol <= -80 ? 0 : Math.pow(10, maxVol / 20); gainNode.gain.value = minGain + (maxGain - minGain) * currentProgress; }
             lastFrameTime = timestamp;
         }
-
         dom.previewToggleBtn.addEventListener('click', () => {
             if (audioCtx && audioCtx.state === 'closed') { audioCtx = null; }
             if (!audioCtx) {
@@ -165,21 +197,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 requestAnimationFrame(previewLoop);
             }
         });
-        console.log("Preview setup complete.");
     }
     
     async function saveTrack() {
-        const defaultName = state.tempFilename.replace('temp_', '噪音_').replace(/_\d+\.wav$/, '.wav');
-        const final_filename = prompt("请输入新音频的名称:", defaultName);
+        const defaultName = `粉红噪音_${new Date().toLocaleDateString().replaceAll('/', '')}.wav`;
+        const final_filename = prompt("为新生成的音频命名:", defaultName);
         if (final_filename && state.tempFilename) {
             dom.saveTrackBtn.disabled = true; dom.saveTrackBtn.textContent = '保存中...';
             try {
                 await apiCall('/api/audio/save-temp', 'POST', { temp_filename: state.tempFilename, final_filename: final_filename, track_type: state.trackType });
                 alert('音频已成功保存到音乐库！');
-                loadLibrary();
+                renderAudioLists();
                 resetPreview();
-            } catch (error) { dom.saveTrackBtn.disabled = false; }
-            finally { dom.saveTrackBtn.textContent = '💾 保存到音乐库'; }
+            } catch (error) {
+                dom.saveTrackBtn.disabled = false;
+            } finally {
+                dom.saveTrackBtn.textContent = '💾 保存';
+            }
         }
     }
     
@@ -188,37 +222,32 @@ document.addEventListener('DOMContentLoaded', () => {
         state.tempFilename = null; state.trackType = null;
         dom.saveTrackBtn.disabled = true; dom.previewToggleBtn.disabled = true;
         dom.previewAudio.src = '';
-        if (dom.previewFilenameDisplay) { dom.previewFilenameDisplay.textContent = '暂无音乐生成'; }
+        if (dom.previewInfo) { dom.previewInfo.textContent = '暂无音频可预览'; }
         dom.previewText.textContent = '预览';
     }
 
-    function initialize() {
-        console.log("Initializing generator page...");
-        // Create the preview filename display element dynamically and add to DOM
-        dom.previewFilenameDisplay = document.createElement('div');
-        dom.previewFilenameDisplay.className = 'preview-filename';
-        dom.previewLight.parentElement.appendChild(dom.previewFilenameDisplay);
-        resetPreview(); // Set initial text
-
-        loadLibrary();
+    async function initialize() {
+        try {
+            const authStatus = await apiCall('/auth/status'); // This will now correctly use GET
+            if(authStatus && authStatus.logged_in) {
+                state.isLoggedIn = true;
+                state.username = authStatus.username;
+                state.isAdmin = authStatus.is_admin;
+            } else {
+                alert("您需要登录才能访问音乐生成器。");
+                window.location.href = '/index.html';
+                return;
+            }
+        } catch(e) {
+            alert("无法验证用户身份，将返回主页。");
+            window.location.href = '/index.html';
+            return;
+        }
+        renderAudioLists();
         setupTabs();
         setupPreview();
-
-        // KEY CHANGE: Ensure the button exists before adding listener
-        if (dom.generateMainBtn) {
-            dom.generateMainBtn.addEventListener('click', generateMainTrack);
-            console.log("Event listener for generateMainBtn ADDED.");
-        } else {
-            console.error("FATAL: generateMainBtn not found in DOM!");
-        }
-        
-        if (dom.saveTrackBtn) {
-            dom.saveTrackBtn.addEventListener('click', saveTrack);
-            console.log("Event listener for saveTrackBtn ADDED.");
-        } else {
-            console.error("FATAL: saveTrackBtn not found in DOM!");
-        }
-        console.log("Initialization complete.");
+        if (dom.generateMainBtn) { dom.generateMainBtn.addEventListener('click', generateMainTrack); }
+        if (dom.saveTrackBtn) { dom.saveTrackBtn.addEventListener('click', saveTrack); }
     }
 
     initialize();

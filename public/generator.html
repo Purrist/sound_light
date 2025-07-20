@@ -2,8 +2,8 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>音乐生成器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="generator.css"> 
 </head>
@@ -40,21 +40,28 @@
                 </div>
                 <!-- Main Track Generator Tab Content -->
                 <div id="main-track-generator" class="tab-content active">
-                    <h4>参数设置 (噪音)</h4>
+                    <h4>参数设置 (粉红噪音)</h4>
                     <div class="param-grid">
                         <label>时长 (秒):</label>
-                        <input type="number" id="noiseDuration" value="30" min="1" max="300">
+                        <input type="number" id="noiseDuration" value="10" min="1" max="60">
                         
-                        <label for="toneSlider">音色:</label>
+                        <label for="toneSlider">音色 (截止频率):</label>
                         <div class="slider-container">
-                            <span>沉闷</span>
-                            <input type="range" id="toneSlider" min="500" max="12000" value="8000" class="param-slider">
-                            <span>明亮</span>
+                            <span>沉闷 (500Hz)</span>
+                            <input type="range" id="toneSlider" min="500" max="15000" value="8000" class="param-slider">
+                            <span>明亮 (15kHz)</span>
                         </div>
 
-                        <label for="widthSlider">立体声宽度:</label>
+                        <label for="resonanceSlider">共振 (Q值):</label>
                          <div class="slider-container">
-                            <span>单声道</span>
+                            <span>平滑</span>
+                            <input type="range" id="resonanceSlider" min="0.7" max="10" value="1" step="0.1" class="param-slider">
+                            <span>尖锐</span>
+                        </div>
+
+                        <label for="widthSlider">声音宽度:</label>
+                         <div class="slider-container">
+                            <span>集中</span>
                             <input type="range" id="widthSlider" min="0" max="1" value="0.8" step="0.05" class="param-slider">
                             <span>宽广</span>
                         </div>
@@ -71,18 +78,17 @@
                 <div id="preview-light-background"><div id="preview-guide-text">预览</div></div>
                 <div class="preview-controls">
                     <button id="previewToggleBtn" disabled>▶ 预览</button>
+                    <div id="previewInfo" class="preview-info">暂无音频可预览</div>
                     <label>呼吸频率: <input type="number" id="previewBPM" value="6"> 次/分</label>
                     <label>响度范围 (dB): <input type="number" id="previewMinVol" value="-40"> - <input type="number" id="previewMaxVol" value="-10"></label>
-                    
-                    <!-- KEY CHANGE: Add a new element for the filename -->
-                    <div id="previewInfo" class="preview-info">暂无音频可预览</div>
-
-                    <button id="saveTrackBtn" disabled>💾 保存到音乐库</button>
+                    <button id="saveTrackBtn" disabled>💾 保存</button>
                 </div>
             </div>
         </main>
     </div>
     <audio id="previewAudio" loop crossorigin="anonymous"></audio>
-    <script src="generator.js"></script>
+    <!-- We need the main script.js for auth status and other helpers -->
+    <script src="script.js" defer></script> 
+    <script src="generator.js" defer></script>
 </body>
 </html>

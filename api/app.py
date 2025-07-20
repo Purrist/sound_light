@@ -43,8 +43,7 @@ def secure_filename_custom(filename):
 
 # --- Application Factory ---
 def create_app():
-    app = Flask(__name__, instance_path=INSTANCE_FOLDER, static_folder=PUBLIC_FOLDER, static_url_path='')
-    
+    app = Flask(__name__, instance_path=INSTANCE_FOLDER, static_folder=PUBLIC_FOLDER, static_url_path='')   
     app.config.from_mapping(
         SECRET_KEY=os.environ.get('SECRET_KEY', 'a_very_secret_key_for_development_12345'),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
@@ -98,7 +97,7 @@ def create_app():
             'mix_elements': get_combined_audio_files('mix_elements')
         })
 
-    # --- RESTORED CONFIGURATION ROUTES ---
+    # --- CONFIGURATION ROUTES ---
     @app.route('/api/soundsets', methods=['GET'])
     @login_required
     def get_soundsets(): return jsonify(get_combined_json_files('soundset'))
@@ -198,7 +197,7 @@ def create_app():
                 f.write(name)
             return jsonify({'message': f'Set {name} as default successfully'})
 
-    # --- Audio File Routes (Metadata Model) ---
+    # --- AUDIO FILE ROUTES (METADATA MODEL) ---
     @app.route('/api/upload/<track_type>', methods=['POST'])
     @login_required
     def upload_audio(track_type):
@@ -258,24 +257,17 @@ def create_app():
     def generate_main_noise_route():
         try:
             params = request.get_json() or {}
-            
-            # 1. 调用核心引擎生成原始噪音
             noise_segment = generate_noise(
-                duration_s=params.get('duration_s', 30),
-                color='pink', # 目前固定为粉红噪音
+                duration_s=params.get('duration_s', 10),
+                color='pink',
                 tone_cutoff_hz=params.get('tone_cutoff_hz', 8000),
+                resonance=params.get('resonance', 1.0),
                 stereo_width=params.get('stereo_width', 0.8)
             )
-
-            # 2. 为最终处理步骤定义默认参数
-            processing_params = {
-                'volume_db': -6.0,   # 设置一个适中的默认音量
-                'fade_in_ms': 500,  # 默认 0.5 秒淡入
-                'fade_out_ms': 1500 # 默认 1.5 秒淡出
-            }
-
-            # 3. 调用处理和保存函数
-            temp_filename = process_and_save_track(noise_segment, 'mainsound', get_audio_storage_path, processing_params)
+            # KEY FIX: Call the helper function to get the STRING path first
+            save_path = get_audio_storage_path('mainsound')
+            # Then pass the STRING path to the processing function
+            temp_filename = process_and_save_track(noise_segment, 'mainsound', save_path)
             
             return jsonify({"success": True, "filename": temp_filename})
         except Exception as e:
@@ -302,6 +294,7 @@ def create_app():
             return jsonify({"success": True, "message": "音频已成功保存到音乐库"})
         return jsonify({"error": "临时文件未找到"}), 404
 
+    # --- FILE SERVING ROUTES ---
     @app.route('/media/<track_type>/<path:filename>')
     def serve_audio_file(track_type, filename):
         if track_type not in ['mainsound', 'plussound', 'mix_elements']: abort(404)
