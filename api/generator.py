@@ -14,38 +14,48 @@ def butter_lowpass_filter(data, cutoff, fs, order=5):
 
 def generate_noise(duration_s=30, color='pink', channels=2, tone_cutoff_hz=8000, stereo_width=0.8):
     """
-    Generates high-quality noise with customizable parameters.
+    Generates high-quality, SEAMLESSLY LOOPABLE noise.
     """
     sampling_rate = 44100
     num_samples = int(sampling_rate * duration_s)
 
-    # Generate stereo white noise as the base
-    white_noise_stereo = np.random.uniform(-1, 1, (num_samples, 2)).astype(np.float32)
-
     if color == 'pink':
-        fft_white = np.fft.rfft(white_noise_stereo, axis=0)
-        frequencies = np.fft.rfftfreq(num_samples, 1/sampling_rate)
-        frequencies[0] = 1 
-        pink_filter = 1 / np.sqrt(frequencies)
-        fft_pink = fft_white * pink_filter[:, np.newaxis]
-        pink_noise_stereo = np.fft.irfft(fft_pink, axis=0)
-    else:
-        pink_noise_stereo = white_noise_stereo
+        # Use a method that is inherently tileable (periodic) for looping
+        # Generate white noise in the frequency domain
+        fft_shape = (num_samples // 2 + 1, channels)
+        fft_white = (np.random.randn(*fft_shape) + 1j * np.random.randn(*fft_shape)).astype(np.complex64)
         
-    if tone_cutoff_hz < (sampling_rate / 2 - 1): # Ensure cutoff is valid
-        pink_noise_stereo[:, 0] = butter_lowpass_filter(pink_noise_stereo[:, 0], tone_cutoff_hz, sampling_rate)
-        pink_noise_stereo[:, 1] = butter_lowpass_filter(pink_noise_stereo[:, 1], tone_cutoff_hz, sampling_rate)
+        # Create pink filter
+        frequencies = np.fft.rfftfreq(num_samples, 1/sampling_rate)
+        frequencies[0] = 1e-6 # Avoid division by zero
+        pink_filter = 1 / np.sqrt(frequencies)
+        
+        # Apply filter
+        fft_pink = fft_white * pink_filter[:, np.newaxis]
+        
+        # Transform back to time domain
+        noise_stereo = np.fft.irfft(fft_pink, n=num_samples, axis=0)
 
-    mono_signal = np.mean(pink_noise_stereo, axis=1)
-    left_channel = stereo_width * pink_noise_stereo[:, 0] + (1 - stereo_width) * mono_signal
-    right_channel = stereo_width * pink_noise_stereo[:, 1] + (1 - stereo_width) * mono_signal
-    processed_noise = np.stack([left_channel, right_channel], axis=1)
+    else: # Fallback to simpler white noise
+        noise_stereo = np.random.uniform(-1, 1, (num_samples, channels)).astype(np.float32)
+        
+    # Apply low-pass filter for tone control
+    if tone_cutoff_hz < (sampling_rate / 2 - 1):
+        for i in range(channels):
+            noise_stereo[:, i] = butter_lowpass_filter(noise_stereo[:, i], tone_cutoff_hz, sampling_rate)
+
+    # Apply stereo width
+    mono_signal = np.mean(noise_stereo, axis=1)
+    for i in range(channels):
+        noise_stereo[:, i] = stereo_width * noise_stereo[:, i] + (1 - stereo_width) * mono_signal
     
     # Normalize to prevent clipping
-    processed_noise /= np.max(np.abs(processed_noise))
+    noise_stereo /= np.max(np.abs(noise_stereo)) * 1.05 # Add a little headroom
     
-    samples_16bit = (processed_noise * 32767).astype(np.int16)
+    # Convert to 16-bit integer samples
+    samples_16bit = (noise_stereo * 32767).astype(np.int16)
     
+    # Create pydub audio segment
     noise_segment = AudioSegment(
         samples_16bit.tobytes(),
         frame_rate=sampling_rate,
